@@ -805,7 +805,7 @@ class VERMainWindow(QMainWindow):
         self.flash_spin = QSpinBox()
         self.flash_spin.setRange(5, 500)
         self.flash_spin.setValue(EPOCH_CONFIG["flashes_per_session"])
-        self.flash_spin.setToolTip("Trigger events per average block (inherited VER epoch setting)")
+        self.flash_spin.setToolTip("Number of trigger events per averaging block")
         self.flash_spin.valueChanged.connect(self._on_flash_count_changed)
 
         # --- Input Source Widgets ---

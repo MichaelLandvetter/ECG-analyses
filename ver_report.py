@@ -488,7 +488,7 @@ def _build_stats_table_page(
     
     # 1. PRE-POPULATE ROWS FIRST (So we can calculate height correctly)
     col_labels = [
-        "Block", "Label", "Detected?", "Reason",
+        "Block", "Label", "Response Detected?", "Reason",
         "Peak-1 Latency (ms)", "Peak-1 Amp",
         "Peak-2 Latency (ms)", "Peak-2 Amp",
         "Peak-3 Latency (ms)", "Peak-3 Amp",
