@@ -8,7 +8,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTableWidget,
                              QLabel, QScrollArea, QLineEdit)
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
-from ver_classifier import evaluate_ver_peak
+# TRANSITIONAL: import through ECG classifier boundary (ecg_classifier.py wraps ver_classifier.py)
+from ecg_classifier import classify_ecg_signal
 from ver_settings import SettingsManager
 
 # Canonical 15-column header for training_data.csv (v2 schema).
@@ -267,14 +268,15 @@ def launch_ml_logger(
             p3_lat = float(p3_d['latency_ms']) if p3_d.get('found') else 0.0
             p2_snr = float(p2_d['snr']) if p2_d.get('found') else 0.0
             
-        # Look for this line inside launch_ml_logger:
-        is_ver, failure_details = evaluate_ver_peak(peak_scale, peak_power, p1_lat if p1_lat else None, p2_lat if p2_lat else None, p3_lat if p3_lat else None, p2_snr)
+        # Route through ECG classifier boundary — classify_ecg_signal delegates to
+        # inherited evaluate_ver_peak; switch to real ECG logic inside ecg_classifier.py.
+        is_detected, check_details = classify_ecg_signal(peak_scale, peak_power, p1_lat if p1_lat else None, p2_lat if p2_lat else None, p3_lat if p3_lat else None, p2_snr)
         
         # --- NEW REASON LOGIC ---
-        if is_ver:
+        if is_detected:
             reason = "Passed"
         else:
-            failed_tests = [test_name for test_name, passed in failure_details.items() if not passed]
+            failed_tests = [test_name for test_name, passed in check_details.items() if not passed]
             reason = "Failed:\n" + "\n".join(failed_tests)
         # ------------------------
 
@@ -282,7 +284,7 @@ def launch_ml_logger(
             'block': labels[idx] if idx < len(labels) else f"Block {idx+1}",
             'power': peak_power, 'scale': peak_scale,
             'p1_lat': p1_lat, 'p2_lat': p2_lat, 'p3_lat': p3_lat, 'snr': p2_snr,
-            'computer_label': is_ver, 'reason': reason
+            'computer_label': is_detected, 'reason': reason
         })
 
     dialog = HumanValidationDialog(block_data, png_path, parent, filename=filename, species=species)

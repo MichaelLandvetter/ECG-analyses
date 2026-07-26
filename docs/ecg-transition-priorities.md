@@ -62,13 +62,6 @@
 `ver_main.py`/`ver_preflight.py` route through that interface while inherited
 `ver_scope.py` behavior remains underneath temporarily.
 
-**Why early:**
-The scope processor is the epoch trigger model for the entire application.
-Every upstream signal sample and every downstream averaged waveform passes
-through it.  As long as it is VER-specific (flash-locked, flash-count sessions)
-the application cannot produce meaningful ECG output — it will silently produce
-VER-oriented epochs from ECG data.
-
 **Problem if left unchanged:**
 Trigger logic based on external flash events will not fire correctly (or at
 all) on ECG data.  All downstream averaging, artifact rejection, and reporting
@@ -128,6 +121,14 @@ Clinically meaningful ECG interval measurements in reports.
 
 ### Rank 3 — `ver_classifier.py` → `ecg_classifier.py`
 
+**Current transition status:** ECG-named boundary established in
+`ecg_classifier.py`.  The function `classify_ecg_signal()` with neutral
+parameter and return names now routes all callers (`ver_ml_logger.py`,
+`ver_report.py`, `ver_analysis_engine.py`) through this boundary.  Inherited
+VER gate logic still runs underneath via delegation to `evaluate_ver_peak`.
+`check_details` key names are still VER labels until the ECG logic is
+implemented inside `ecg_classifier.py`.
+
 **Why early:**
 Must be replaced together with `ver_peaks.py`.  The classifier gates on VER
 peak latency and SNR thresholds that have no ECG meaning.  Leaving it in place
@@ -139,12 +140,14 @@ false clinical impression.
 
 **Replace vs. generalise:**
 Full replacement.  Implement ECG-relevant decision logic (e.g. normal sinus
-rhythm vs. arrhythmia detection, QRS duration within normal range, etc.).
+rhythm vs. arrhythmia detection, QRS duration within normal range, etc.) inside
+`ecg_classifier.py`, replacing the delegation to `evaluate_ver_peak`.
 
 **Dependencies / risks:**
-`ver_main.py` calls `evaluate_ver_peak` at multiple points.  `ver_report.py`
-and `ver_ml_logger.py` use the classifier output.  Replace as a trio with
-`ver_peaks.py` and update all callers.
+`ecg_classifier.py` is now the single caller boundary; update only
+`ecg_classifier.py` to switch all callers.  `ver_report.py` and
+`ver_ml_logger.py` already use `classify_ecg_signal` and will follow
+automatically.  Replace together with `ver_peaks.py`.
 
 **User-facing improvement:**
 Meaningful ECG classification labels instead of VER pass/fail.
@@ -177,13 +180,21 @@ Settings UI shows ECG-relevant labels; no fish species selector.
 
 ### Rank 5 — `ver_report.py` + `ver_ml_logger.py`
 
+**Current transition status:** ECG-named boundary established in
+`ecg_report.py`.  The function `save_ecg_report()` now routes the main
+caller (`ver_main.py`) through this boundary.  `ver_report.py` internally
+routes its classification calls through `ecg_classifier.py`.  VER-domain
+CSV column headers (`VER_label`, `N_flashes_total`), PDF layout, and
+waveform table structure remain unchanged underneath.
+
 **Why after Rank 2–3:**
 Report and ML schema content depends on the peak/classifier output format.
 Updating them before the analysis modules are replaced just creates a mismatch
 between the new headers and the old data.
 
-**What to change (`ver_report.py`):**
-- Replace CSV column headers (`VER_label`, `VER?`) with ECG metrics.
+**What to change (`ecg_report.py` / `ver_report.py`):**
+- Replace delegation inside `ecg_report.py` with real ECG report generation.
+- Replace CSV column headers (`VER_label`, `N_flashes_total`) with ECG metrics.
 - Update PDF text, axis labels, and plot wording.
 
 **What to change (`ver_ml_logger.py`):**
@@ -193,7 +204,7 @@ between the new headers and the old data.
 
 **Dependencies / risks:**
 Low — these modules are primarily output-only.  Replace after the peak/scope
-pair is stable.
+pair is stable.  `ver_ml_logger.py` already routes through `ecg_classifier.py`.
 
 ---
 
@@ -207,29 +218,28 @@ Step 1  (done)  Documentation + branding
                 ├── TRANSITION.md — module assessment + phased roadmap
                 └── docs/ecg-transition-priorities.md — this document
 
-Step 2  (next)  Replace ver_scope.py → ecg_scope.py
-                ├── Implement Pan-Tompkins R-peak trigger
-                ├── Replace flash-count session structure with beat-block model
-                ├── Preserve result-dict interface keys used by ver_main.py
-                ├── Update ver_main.py: swap VERScopeProcessor → ECGScopeProcessor
-                ├── Update ver_preflight.py: swap import + interface call
-                └── Update ver_config.py: rename flashes_per_session → beats_per_block
+Step 2  (done)  Replace ver_scope.py → ecg_scope.py (boundary established)
+                ├── ecg_scope.py created — ECGScopeProcessor delegates to VERScopeProcessor
+                ├── ver_main.py: swapped VERScopeProcessor → ECGScopeProcessor import
+                ├── ver_preflight.py: swapped import + interface call
+                └── Implement Pan-Tompkins R-peak trigger inside ecg_scope.py (NEXT)
 
-Step 3          Replace ver_peaks.py → ecg_peaks.py
+Step 3  (next)  Replace ver_peaks.py → ecg_peaks.py
                 ├── Implement P/Q/R/S/T detection (QRS, PR, QT intervals)
                 ├── Define ECGPeaksResult TypedDict with ECG-standard keys
                 └── Update ver_main.py: swap detect_ver_peaks → detect_ecg_peaks
 
-Step 4          Replace ver_classifier.py → ecg_classifier.py
-                ├── Implement ECG interval and rhythm classification logic
-                ├── Update ver_main.py call sites
-                └── (coordinate with Step 3 — same PR preferred)
+Step 4  (boundary done)  Replace ver_classifier.py → ecg_classifier.py
+                ├── ecg_classifier.py created — classify_ecg_signal() delegates to evaluate_ver_peak
+                ├── ver_ml_logger.py, ver_report.py: switched to classify_ecg_signal import
+                ├── ver_analysis_engine.py: routes through ecg_classifier boundary
+                └── Implement ECG interval and rhythm classification inside ecg_classifier.py (NEXT)
 
-Step 5          Replace ver_report.py + ver_ml_logger.py
-                ├── Replace CSV headers with ECG metric columns
-                ├── Update PDF wording and axis labels
-                ├── Update human validation dialog labels
-                └── Update ver_main.py: swap save_ver_report → save_ecg_report
+Step 5  (boundary done)  Replace ver_report.py → ecg_report.py
+                ├── ecg_report.py created — save_ecg_report() delegates to save_ver_report
+                ├── ver_main.py: switched to save_ecg_report import and call sites
+                ├── ver_analysis_engine.py: routes through ecg_report boundary
+                └── Implement real ECG report logic inside ecg_report.py (NEXT)
 
 Step 6          Config and UI cleanup
                 ├── Remove SPECIES fish list from ver_config.py

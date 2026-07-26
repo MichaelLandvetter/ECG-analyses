@@ -11,11 +11,10 @@ together with ``ver_peaks.py`` when ECG classification is implemented.
   of these criteria apply to ECG morphology or rhythm classification.
 - Failure details (``P2 Latency``, ``Peak Structure``, etc.) are VER labels.
 
-**Callers (updated through ver_analysis_engine.py):**
-- ``ver_analysis_engine.py`` — re-exports ``evaluate_ver_peak``; update the
-  import there to switch all callers at once.
-- ``ver_report.py`` — calls ``evaluate_ver_peak`` directly; update in same PR.
-- ``ver_ml_logger.py`` — calls ``evaluate_ver_peak``; update in same PR.
+**Callers (now routed through ecg_classifier.py boundary):**
+- ``ecg_classifier.py`` — the single ECG-named boundary; all callers now
+  import ``classify_ecg_signal`` from there rather than from this module.
+- ``ver_analysis_engine.py`` — re-exports via the ecg_classifier boundary.
 
 **ECG replacement (ecg_classifier.py) should expose:**
 - Rhythm classification (normal sinus, arrhythmia, etc.).
@@ -23,7 +22,7 @@ together with ``ver_peaks.py`` when ECG classification is implemented.
 - Replace the ``is_ver`` / ``failure_details`` output schema with ECG labels.
 
 Replace this module as part of a coordinated trio: ``ver_peaks.py`` →
-``ver_classifier.py`` → ``ver_report.py`` / ``ver_ml_logger.py``.
+``ecg_classifier.py`` → ``ecg_report.py`` / ``ver_ml_logger.py``.
 
 See ``docs/ecg-transition-priorities.md § Rank 3`` and ``TRANSITION.md``.
 """

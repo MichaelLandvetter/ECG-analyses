@@ -80,7 +80,7 @@ from ver_analysis_flow import (
 # See docs/ecg-transition-priorities.md for the full replacement sequence.
 from ver_analysis_engine import (       # REPLACEMENT BOUNDARY — see ver_analysis_engine.py
     detect_ver_peaks,
-    save_ver_report,
+    save_ecg_report,                    # ECG-named boundary (wraps inherited ver_report)
     refresh_classifier_cfg as _refresh_analysis_engine_cfg,
 )
 from ecg_scope import ECGScopeProcessor  # REPLACEMENT BOUNDARY (transitional placeholder)
@@ -1607,12 +1607,13 @@ class VERMainWindow(QMainWindow):
         
         # ---------------------------------------------------------
         # PASS 1: Generate the Draft
-        # --- VER report engine call site (transitional) ---
-        # save_ver_report comes from ver_analysis_engine.py (REPLACEMENT TARGET 4).
-        # Replace with save_ecg_report() from ecg_report.py after scope + peaks + classifier.
+        # --- ECG report engine call site (transitional) ---
+        # save_ecg_report comes from ecg_report.py (REPLACEMENT TARGET 4).
+        # Replace delegation inside ecg_report.py with real ECG report logic
+        # after scope + peaks + classifier modules are replaced.
         # ---------------------------------------------------------
         try:
-            result = save_ver_report(
+            result = save_ecg_report(
                 report_input,
                 self.scope.session_averages,
                 self.scope.epoch_time_ms,
@@ -1673,7 +1674,7 @@ class VERMainWindow(QMainWindow):
                 
                 original_stem = Path(result["png"]).stem 
                 try:
-                    result = save_ver_report(
+                    result = save_ecg_report(
                         report_input,
                         self.scope.session_averages,
                         self.scope.epoch_time_ms,

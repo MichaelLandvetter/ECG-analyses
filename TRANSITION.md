@@ -165,6 +165,79 @@ classifier/report schema updates.
 
 ---
 
+## What was changed in the fifth pass (report/classifier workflow boundary PR)
+
+This pass establishes **ECG-named placeholder boundaries** for the inherited
+VER classifier and report generator, reducing direct caller dependence on
+``ver_classifier.py`` and ``ver_report.py`` without changing any analysis logic.
+
+### Workflow target chosen
+Both the classifier and report workflows were addressed together because they
+are tightly linked: the report directly calls the classifier to produce per-block
+labels.  Establishing both boundaries in the same pass prevents the callers from
+being left straddling mixed VER/ECG naming.
+
+### New ECG-oriented placeholder modules
+
+1. **`ecg_classifier.py` created (NEW)** — ECG-named boundary for the
+   inherited VER classifier.  Exposes `classify_ecg_signal()` with neutral
+   parameter names (`feature1_latency`, `feature2_latency`, etc.) and a
+   neutral return tuple `(is_detected, check_details)` instead of
+   `(is_ver, failure_details)`.  Delegates entirely to inherited
+   `evaluate_ver_peak` from `ver_classifier.py`; the VER-tuned gate logic
+   and VER-labelled `check_details` keys remain unchanged underneath.
+
+2. **`ecg_report.py` created (NEW)** — ECG-named boundary for the inherited
+   VER report generator.  Exposes `save_ecg_report()` with the same
+   parameters as `save_ver_report()`.  Delegates entirely to inherited
+   `ver_report.save_ver_report`; PDF layout, CSV column headers
+   (`VER_label`), and plot wording remain unchanged underneath.
+
+### Updated callers
+
+3. **`ver_analysis_engine.py` updated** — The adapter now imports from
+   `ecg_classifier` and `ecg_report` instead of from the `ver_*` modules
+   directly.  The ECG-named functions (`classify_ecg_signal`,
+   `save_ecg_report`) are now the primary exports.  Backward-compat aliases
+   (`evaluate_ver_peak = classify_ecg_signal`,
+   `save_ver_report = save_ecg_report`) are retained temporarily for any
+   remaining references and should be removed once all callers are updated.
+
+4. **`ver_ml_logger.py` updated** — The direct `from ver_classifier import
+   evaluate_ver_peak` is replaced by `from ecg_classifier import
+   classify_ecg_signal`.  The call site uses `is_detected` /
+   `check_details` variable names instead of `is_ver` / `failure_details`.
+
+5. **`ver_report.py` updated** — The internal `from ver_classifier import
+   evaluate_ver_peak` is replaced by `from ecg_classifier import
+   classify_ecg_signal`.  Both internal call sites use `is_detected` /
+   `check_details` variable names.  The CSV output column `VER_label` and
+   inherited report structure are unchanged (still inherited VER behavior).
+
+6. **`ver_main.py` updated** — The import `save_ver_report` from
+   `ver_analysis_engine` is replaced by `save_ecg_report`.  Both call
+   sites in `save_report()` now reference `save_ecg_report`.
+
+### Inherited behavior still remaining temporarily
+
+- All classification logic (SNR gates, latency windows, scale/power checks)
+  still comes from `ver_classifier.py` via delegation.
+- PDF figure layout, CSV column headers (`VER_label`, `N_flashes_total`,
+  `N_flashes_accepted`), and waveform table structure are still VER-domain
+  output from `ver_report.py`.
+- `check_details` key names (`"Scale Range"`, `"Minimum Power"`,
+  `"P2 Latency"`, `"Peak Structure"`, `"SNR"`) are still VER labels
+  produced by the inherited logic.
+- `session_ver_peaks` variable naming in `ver_main.py` and related
+  orchestration code is unchanged.
+
+**Recommended next replacement target after this pass:**
+`ver_peaks.py` (via `ver_analysis_engine.py`), followed by coordinated
+replacement of the classification/report logic inside `ecg_classifier.py`
+and `ecg_report.py` once the peak output schema is defined.
+
+---
+
 ## What was intentionally left unchanged
 
 - All module file names (`ver_*.py`) — renaming would break all imports and is
