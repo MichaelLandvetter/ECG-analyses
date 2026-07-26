@@ -53,9 +53,9 @@ from PyQt6.QtWidgets import (
 )
 
 # --- Generic infrastructure (keep for ECG) ---
+from ecg_loader import ECGFileLoader
 from ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
-from ver_config import ACQ_CONFIG, EPOCH_CONFIG, FILE_CONFIG, FILE_FORMATS, FILTER_CONFIG, SERIAL_CONFIG, SPECIES
-from ver_constants import DEFAULT_SCOPE_FILTER_MODE, SCOPE_FILTER_MODES
+from ver_config import ACQ_CONFIG, EPOCH_CONFIG, FILE_CONFIG, FILTER_CONFIG, SERIAL_CONFIG, SPECIES
 from ver_display import VERDisplayWidget
 from ver_filter import BandpassFilter
 from ver_logging import setup_logging
@@ -764,31 +764,16 @@ class VERMainWindow(QMainWindow):
         # ==========================================
         # --- Data File Widgets ---
         self.file_label = QLabel("No file selected")
-        open_btn = QPushButton("Open Data File")
+        open_btn = QPushButton("Open ECG File (.txt)")
         open_btn.clicked.connect(lambda: self._select_data_file(initial=False))
-        self.suggest_exclusion_btn = QPushButton("Set Exclusion")
-        self.suggest_exclusion_btn.setEnabled(False)
-        self.suggest_exclusion_btn.clicked.connect(self._suggest_exclusion)
-        self.format_combo = QComboBox()
-        self.format_combo.addItems(list(FILE_FORMATS.keys()))
-        self.format_combo.currentTextChanged.connect(self._on_format_changed)
-        self.file_species_combo = QComboBox()
-        self.file_species_combo.addItem("(not set)")
-        self.file_species_combo.addItems(self._species_options())
-        saved_species = self.settings_manager.settings.get("METADATA_CONFIG", {}).get("species", "").strip()
-        self._set_species_selection(saved_species)
 
-        # --- Filter Widgets ---
+        # --- Filter Widgets (ECG bandpass only) ---
         self.low_spin = QSpinBox()
         self.low_spin.setRange(1, 120)
         self.low_spin.setValue(int(FILTER_CONFIG["lowcut_hz"]))
         self.high_spin = QSpinBox()
         self.high_spin.setRange(2, 124)
         self.high_spin.setValue(int(FILTER_CONFIG["highcut_hz"]))
-        
-        # Add the Scope Filter Dropdown
-        self.scope_filter_combo = QComboBox()
-        self.scope_filter_combo.addItems(SCOPE_FILTER_MODES)
 
         apply_filter_btn = QPushButton("Apply Filter")
         apply_filter_btn.clicked.connect(self._apply_filter_settings)
@@ -803,17 +788,11 @@ class VERMainWindow(QMainWindow):
         self.reset_btn.clicked.connect(self.reset_all)
         self.save_btn.clicked.connect(self.save_report)
 
-        # --- Speed & Scope Widgets ---
+        # --- Speed Widget ---
         self.speed_combo = QComboBox()
         self.speed_combo.addItems(["Real-time (1×)", "Fast (10×)", "Maximum speed"])
         self.speed_combo.setToolTip("Replay speed")
         self.speed_combo.currentTextChanged.connect(self._on_speed_changed)
-        
-        self.flash_spin = QSpinBox()
-        self.flash_spin.setRange(5, 500)
-        self.flash_spin.setValue(EPOCH_CONFIG["flashes_per_session"])
-        self.flash_spin.setToolTip("Number of trigger events per averaging block")
-        self.flash_spin.valueChanged.connect(self._on_flash_count_changed)
 
         # --- Input Source Widgets ---
         self.source_combo = QComboBox()
@@ -849,38 +828,27 @@ class VERMainWindow(QMainWindow):
         group1.setLayout(layout1)
         top_bar.addWidget(group1)
 
-        # 2. DATA FILE GROUP
-        group2 = QGroupBox("2. Data File")
-        layout2 = QVBoxLayout() 
-        species_layout = QHBoxLayout()
-        species_layout.addWidget(QLabel("Species:"))
-        species_layout.addWidget(self.file_species_combo)
-        file_controls_layout = QHBoxLayout()
-        file_controls_layout.addWidget(open_btn)
-        file_controls_layout.addWidget(self.suggest_exclusion_btn)
-        file_controls_layout.addWidget(QLabel("Format:"))
-        file_controls_layout.addWidget(self.format_combo)
+        # 2. DATA FILE GROUP — ECG plain text (.txt), one column of raw values
+        group2 = QGroupBox("2. ECG Data File")
+        layout2 = QVBoxLayout()
         layout2.addWidget(self.file_label)
-        layout2.addLayout(species_layout)
-        layout2.addLayout(file_controls_layout)
+        layout2.addWidget(open_btn)
         group2.setLayout(layout2)
         top_bar.addWidget(group2)
 
-        # 3. FILTER SETTINGS GROUP
-        group3 = QGroupBox("3. Filter Settings")
-        layout3 = QFormLayout() 
+        # 3. FILTER SETTINGS GROUP — ECG bandpass only
+        group3 = QGroupBox("3. ECG Filter Settings")
+        layout3 = QFormLayout()
         layout3.addRow("Low cut (Hz):", self.low_spin)
         layout3.addRow("High cut (Hz):", self.high_spin)
-        layout3.addRow("Scope/Analysis Filter:", self.scope_filter_combo) 
         layout3.addRow(apply_filter_btn)
         group3.setLayout(layout3)
         top_bar.addWidget(group3)
         
-        # 4. SPEED AND SCOPE VIEW GROUP (Moved from 5 to 4)
-        group4 = QGroupBox("4. Speed and Analysis Scope")
-        layout4 = QFormLayout() 
+        # 4. DISPLAY SPEED GROUP
+        group4 = QGroupBox("4. Display Speed")
+        layout4 = QFormLayout()
         layout4.addRow("Speed:", self.speed_combo)
-        layout4.addRow("Triggers/Avg:", self.flash_spin)
         group4.setLayout(layout4)
         top_bar.addWidget(group4)
 
@@ -957,26 +925,12 @@ class VERMainWindow(QMainWindow):
         )
         self.set_artifact_threshold.valueChanged.connect(self._sync_artifact_settings_from_ui)
 
-        # -- Wavelet Settings --
-        self.set_wav_bw = QDoubleSpinBox()
-        self.set_wav_bw.setRange(0.1, 5.0)
-        self.set_wav_bw.setSingleStep(0.1)
-        self.set_wav_bw.setValue(float(self.settings_manager.settings["WAVELET_CONFIG"].get("bandwidth", 1.5)))
-
-        self.set_wav_cf = QDoubleSpinBox()
-        self.set_wav_cf.setRange(0.1, 5.0)
-        self.set_wav_cf.setSingleStep(0.1)
-        self.set_wav_cf.setValue(float(self.settings_manager.settings["WAVELET_CONFIG"].get("center_freq", 2.0)))
-
         # -- Add to Layout --
-        settings_layout.addRow(QLabel("<b>Epoch Window</b>"))
+        settings_layout.addRow(QLabel("<b>Analysis Window</b>"))
         settings_layout.addRow("Pre-trigger Time (ms):", self.set_pre_stim)
         settings_layout.addRow("Post-trigger Time (ms):", self.set_post_stim)
         settings_layout.addRow("Enable artifact rejection:", self.set_artifact_enabled)
         settings_layout.addRow("Exclusion threshold (±):", self.set_artifact_threshold)
-        settings_layout.addRow(QLabel("<b>Wavelet Tuning</b>"))
-        settings_layout.addRow("Wavelet Bandwidth (Time Resolution):", self.set_wav_bw)
-        settings_layout.addRow("Wavelet Center Freq (Freq Focus):", self.set_wav_cf)
 
         # -- Save Button --
         self.save_settings_btn = QPushButton("Save and Apply Settings")
@@ -991,7 +945,6 @@ class VERMainWindow(QMainWindow):
         
         self.setCentralWidget(central)
         
-        self._set_current_format()
         self._set_current_source_mode()
 
         # --- BIG BOLD WARNING LABEL ---
@@ -1070,45 +1023,43 @@ class VERMainWindow(QMainWindow):
 
     def _select_data_file(self, initial: bool = False):
         default_path = str(Path.cwd())
-        selected, _ = QFileDialog.getOpenFileName(self, "Select raw data file", default_path, "Text Files (*.txt);;All Files (*)")
-        
+        selected, _ = QFileDialog.getOpenFileName(
+            self, "Select ECG data file (one column, plain text)", default_path,
+            "Text Files (*.txt);;All Files (*)"
+        )
+
         if selected:
+            # Validate using ECGFileLoader before accepting the file
+            loader = ECGFileLoader(selected, sample_rate=ACQ_CONFIG["sample_rate"])
+            signal, errors = loader.load()
+            if signal.size == 0:
+                QMessageBox.warning(
+                    self, "Invalid ECG File",
+                    "The selected file contains no valid numeric data.\n\n"
+                    "Expected: plain .txt file with one numeric value per line.\n\n"
+                    + "\n".join(errors[:5]),
+                )
+                return
+            if errors:
+                log.warning("ECG file validation issues: %s", errors)
+
             self.data_file = selected
-            self.suggest_exclusion_btn.setEnabled(True)
             self.file_label.setText(f"Selected: \n\n{Path(selected).name}")
-            self.display.set_status(f"Loaded file: {Path(selected).name}")
-            
-            # --- NEW AUTO-DETECT LOGIC ---
-            detected_format = auto_detect_file_format(selected)
-            if detected_format:
-                print(f"Auto-detected format: {detected_format}") # Optional: good for debugging
-                
-                # IMPORTANT: Change 'self.format_combo' to whatever your actual 
-                # QComboBox variable is named in your UI setup (e.g., self.file_format_dropdown)
-                index = self.format_combo.findText(detected_format)
-                if index >= 0:
-                    self.format_combo.setCurrentIndex(index)
-            # -----------------------------
+            self.display.set_status(
+                f"Loaded: {Path(selected).name}  ({signal.size:,} samples)"
+            )
 
             if not initial:
                 self.reset_all()
             if self.worker is not None:
                 self._restart_worker_with_file()
-                
+
         elif initial:
             fallback = Path(__file__).with_name("RAW_files_combined.txt")
             if fallback.exists():
                 self.data_file = str(fallback)
-                self.suggest_exclusion_btn.setEnabled(True)
                 self.file_label.setText(f"Selected: {fallback.name}")
                 self.display.set_status(f"Loaded file: {fallback.name}")
-                
-                # You can also add the auto-detect logic to the fallback file!
-                detected_format = auto_detect_file_format(self.data_file)
-                if detected_format:
-                    index = self.format_combo.findText(detected_format)
-                    if index >= 0:
-                        self.format_combo.setCurrentIndex(index)
 
     def _suggest_exclusion(self):
         if not self.data_file:
@@ -1148,7 +1099,6 @@ class VERMainWindow(QMainWindow):
         is_file = self.acquisition_source_mode == "File"
         is_serial = self.acquisition_source_mode == "Serial"
         self.speed_combo.setEnabled(is_file)
-        self.format_combo.setEnabled(is_file)
         self.serial_port_combo.setEnabled(is_serial)
         self.serial_refresh_btn.setEnabled(is_serial)
         if is_serial:
@@ -1199,21 +1149,17 @@ class VERMainWindow(QMainWindow):
                 if not port:
                     raise ValueError("No serial port selected. Please select a valid COM port.")
                 return SerialAcquisitionSource(port)
-                
-            # 2. FILE REPLAY
+
+            # 2. ECG FILE REPLAY (plain one-column .txt)
             else:
-                # --- The safety check is now safely inside the File section ---
-                required_file_keys = ['trigger_column', 'eeg_column', 'delimiter', 'skip_header']
-                missing_keys = [k for k in required_file_keys if k not in FILE_CONFIG]
-                if missing_keys:
-                    raise ValueError(f"Missing required file configuration keys: {', '.join(missing_keys)}. Ensure you are loading a valid File.")
-                
-                # Check if a file was actually selected
-                # (Note: your variable might be self.data_file or self.current_file depending on your naming)
                 if not hasattr(self, 'data_file') or not self.data_file:
-                    raise ValueError("No data file selected. Please open a file first.")
-                    
-                return FileAcquisitionSimulator(self.data_file, speed_factor=speed_factor)
+                    raise ValueError("No ECG data file selected. Please open a .txt file first.")
+
+                return ECGFileLoader(
+                    self.data_file,
+                    sample_rate=ACQ_CONFIG["sample_rate"],
+                    speed_factor=speed_factor,
+                )
 
         except Exception as e:
             QMessageBox.critical(self, "Acquisition Error", f"Failed to initialize data source:\n{str(e)}")
@@ -1250,11 +1196,6 @@ class VERMainWindow(QMainWindow):
         current_speed = self._get_speed_factor()
         self._sync_artifact_settings_from_ui()
         _refresh_runtime_classifier_settings(self.settings_manager.settings.get("CLASSIFIER_CONFIG", {}))
-
-        # ---> NEW LINES: Tell the scope's filter which mode to use! <---
-        if hasattr(self, 'scope') and hasattr(self.scope, 'bandpass_filter'):
-            self.scope.bandpass_filter.set_scope_mode(self.scope_filter_combo.currentText())
-        # ---------------------------------------------------------------
 
         if self.worker is None:
             if self.scope.flash_count > 0 or self.scope.session_averages:
@@ -1367,12 +1308,6 @@ class VERMainWindow(QMainWindow):
         # Update artifact rejection settings
         new_settings["EPOCH_CONFIG"]["artifact_rejection_enabled"] = self.set_artifact_enabled.isChecked()
         new_settings["EPOCH_CONFIG"]["artifact_exclusion_uv"] = float(self.set_artifact_threshold.value())
-        
-        # Update Wavelet numbers
-        new_settings["WAVELET_CONFIG"]["bandwidth"] = float(self.set_wav_bw.value())
-        new_settings["WAVELET_CONFIG"]["center_freq"] = float(self.set_wav_cf.value())
-        new_settings.setdefault("METADATA_CONFIG", {})
-        new_settings["METADATA_CONFIG"]["species"] = self._selected_species_value()
 
         self._sync_artifact_settings_from_ui()
 
@@ -1544,27 +1479,13 @@ class VERMainWindow(QMainWindow):
         )	
 
     def _on_format_changed(self, format_name: str):
-        FILE_CONFIG.update(FILE_FORMATS[format_name])
-        self.display.set_status(f"File format: {format_name}")
-        self.reset_all()
-        
+        """No-op stub — SD-card / LabChart format selection removed from ECG path."""
+
     def _on_flash_count_changed(self, value: int):
-        """Updates the required flashes per average dynamically."""
-        # 1. Update the global config so new workers know the new limit
-        EPOCH_CONFIG["flashes_per_session"] = value
-        
-        # 2. Update the active scope processor so it takes effect immediately
-        if hasattr(self, 'scope') and self.scope is not None:
-            self.scope.flashes_per_session = value
+        """No-op stub — Trigger/Avg concept removed from ECG top controls."""
 
     def _set_current_format(self):
-        current = {key: FILE_CONFIG.get(key) for key in ("delimiter", "trigger_column", "eeg_column", "skip_header", "trigger_mode", "trigger_threshold")}
-        for format_name, cfg in FILE_FORMATS.items():
-            if all(current.get(key) == cfg.get(key) for key in cfg):
-                self.format_combo.setCurrentText(format_name)
-                return
-        default_name = next(iter(FILE_FORMATS))
-        self.format_combo.setCurrentText(default_name)
+        """No-op stub — file format auto-detection removed from ECG path."""
 
     def show_loading_screen(self, title, message):
         """Displays a borderless, un-clickable loading message that stays on screen."""
