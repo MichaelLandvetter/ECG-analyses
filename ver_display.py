@@ -313,6 +313,8 @@ class VERDisplayWidget(QWidget):
         wavelet_text = f"M{session_number} — Wavelet peak: {peak_freq:.1f} Hz | {peak_latency_ms:.0f} ms | Power: {peak_power:.3e}"
         if ver_peaks:
             def fmt(p): return f"{p['latency_ms']:.0f} ms ({p['amplitude']:.4f})" if p.get('found') else "\u2014"
+            # Transitional mapping: internal keys remain Peak-* for compatibility,
+            # while user-visible labels use neutral Feature-* wording.
             peaks_text = (f"  |  Feature-1: {fmt(ver_peaks.get('Peak-1', {}))}  "
                           f"Feature-2: {fmt(ver_peaks.get('Peak-2', {}))}  "
                           f"Feature-3: {fmt(ver_peaks.get('Peak-3', {}))}")
