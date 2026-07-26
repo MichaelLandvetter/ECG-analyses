@@ -23,7 +23,8 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.lines import Line2D
 from ver_wavelet import compute_wavelet_scalogram
 from matplotlib import colors
-from ver_classifier import evaluate_ver_peak
+# TRANSITIONAL: import through ECG classifier boundary (ecg_classifier.py wraps ver_classifier.py)
+from ecg_classifier import classify_ecg_signal
 
 # Keeping the variable name the same so it doesn't break references
 MINUTE_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
@@ -267,23 +268,25 @@ def _write_summary_csv(
                 
                 p2_snr_val = float(p2_dict['snr']) if p2_dict.get('found') and p2_dict.get('snr') is not None else 0.0
 
-            # EXTERNAL MULTI-PARAMETRIC EVALUATION ---
-            is_ver, failure_details = evaluate_ver_peak(peak_scale, peak_power, p1_latency_val, p2_latency_val, p3_latency_val, p2_snr_val)
+            # TRANSITIONAL: Route through ECG classifier boundary — classify_ecg_signal
+            # delegates to inherited evaluate_ver_peak; switch to real ECG logic inside
+            # ecg_classifier.py when ECG classification is implemented.
+            is_detected, check_details = classify_ecg_signal(peak_scale, peak_power, p1_latency_val, p2_latency_val, p3_latency_val, p2_snr_val)
             
         
             # --- NEW OVERRIDE LOGIC FOR CSV ---
             if human_overrides is not None and idx < len(human_overrides):
-                is_ver = human_overrides[idx]
-                reason = "Human Validated" if is_ver else "Human Rejected"
+                is_detected = human_overrides[idx]
+                reason = "Human Validated" if is_detected else "Human Rejected"
             else:
-                if is_ver:
+                if is_detected:
                     reason = "Passed"
                 else:
-                    failed_tests = [test_name for test_name, passed in failure_details.items() if not passed]
+                    failed_tests = [test_name for test_name, passed in check_details.items() if not passed]
                     reason = "Failed: " + ", ".join(failed_tests)    
             
             # Finalize the label based on whoever made the final decision
-            ver_label = "Yes" if is_ver else "No"
+            ver_label = "Yes" if is_detected else "No"
             
             # ----------------------------------
             
@@ -527,22 +530,24 @@ def _build_stats_table_page(
             
             
             # 1. Computer makes its initial guess
-            #is_ver, failure_details = evaluate_ver_peak(peak_scale, peak_power, p1_l, p2_l, p3_l)
-            is_ver, failure_details = evaluate_ver_peak(peak_scale, peak_power, p1_l, p2_l, p3_l, p2_snr_val)
+            # TRANSITIONAL: Route through ECG classifier boundary — classify_ecg_signal
+            # delegates to inherited evaluate_ver_peak; switch to real ECG logic inside
+            # ecg_classifier.py when ECG classification is implemented.
+            is_detected, check_details = classify_ecg_signal(peak_scale, peak_power, p1_l, p2_l, p3_l, p2_snr_val)
             
             
             # --- 2. NEW OVERRIDE LOGIC ---
             if human_overrides is not None and idx < len(human_overrides):
                 # Replace the computer's guess with the human's truth
-                is_ver = human_overrides[idx]
-                reason = "Human Validated" if is_ver else "Human Rejected"
+                is_detected = human_overrides[idx]
+                reason = "Human Validated" if is_detected else "Human Rejected"
             else:
                 # If no overrides (first pass), use the computer's logic
-                reason = "Passed" if is_ver else "Failed:\n" + "\n".join([n for n, p in failure_details.items() if not p])
+                reason = "Passed" if is_detected else "Failed:\n" + "\n".join([n for n, p in check_details.items() if not p])
             # -----------------------------
             
             # 3. Finalize the label based on whoever made the final decision
-            ver_label = "Yes" if is_ver else "No"
+            ver_label = "Yes" if is_detected else "No"
 
         seconds = int((idx + 1) * (EPOCH_CONFIG["flashes_per_session"] / 2.0))
         rows.append([str(idx + 1), labels[idx] if idx < len(labels) else f"{seconds} s", ver_label, reason,
