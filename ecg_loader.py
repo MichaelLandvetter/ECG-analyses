@@ -87,7 +87,7 @@ class ECGFileLoader:
     # Compatibility shims — required by the AcquisitionWorker contract
     # ------------------------------------------------------------------
 
-    def _open(self) -> None:  # noqa: D401
+    def _open(self) -> None:
         pass
 
     def close(self) -> None:
@@ -175,6 +175,14 @@ class ECGFileLoader:
                 self.file_path.name,
             )
 
+        # Minimum sleep: waits under 2 ms are shorter than typical OS sleep
+        # resolution, so skip the syscall to avoid waking up later than expected.
+        _MIN_SLEEP_S = 0.002
+        # Clock reset: if we fall more than 2 s behind schedule (e.g. after a UI
+        # pause or heavy processing burst) reset the reference time instead of
+        # trying to catch up by skipping sleeps for seconds.
+        _CLOCK_RESET_S = 2.0
+
         base_sleep = 1.0 / self.sample_rate
         next_yield_time = time.perf_counter()
 
@@ -187,9 +195,9 @@ class ECGFileLoader:
                 next_yield_time += sleep_interval
                 now = time.perf_counter()
                 wait = next_yield_time - now
-                if wait > 0.002:
+                if wait > _MIN_SLEEP_S:
                     time.sleep(wait)
-                elif wait < -2.0:
+                elif wait < -_CLOCK_RESET_S:
                     # Fell far behind (e.g. after a pause); reset the clock.
                     next_yield_time = now
             else:

@@ -68,8 +68,10 @@ class VERDisplayWidget(QWidget):
         self.filtered_buffer = deque(maxlen=self.max_scroll_samples)
         self.time_buffer = deque(maxlen=self.max_scroll_samples)
         self.r_peak_times: deque = deque(maxlen=500)   # R-peak timestamps (s)
-        self.rr_times: list[float] = []                # timestamps for HR curve
-        self.rr_bpm: list[float] = []                  # instantaneous BPM values
+        # rr_times / rr_bpm: bounded to the same history depth as r_peak_times so
+        # they do not grow unboundedly during long recordings.
+        self.rr_times: deque = deque(maxlen=500)        # timestamps for HR curve
+        self.rr_bpm: deque = deque(maxlen=500)          # instantaneous BPM values
         self._last_peak_time: float | None = None
         self.sample_index = 0
         self._last_scroll_draw = 0.0
@@ -168,7 +170,9 @@ class VERDisplayWidget(QWidget):
             self.r_peak_times.append(t)
             if self._last_peak_time is not None:
                 rr_s = t - self._last_peak_time
-                if 0.2 < rr_s < 3.0:  # sanity range: 20–300 BPM
+                # Physiological sanity range: RR 0.2–3.0 s → 20–300 BPM.
+                # Values outside this window are treated as missed/double detections.
+                if 0.2 < rr_s < 3.0:
                     bpm = 60.0 / rr_s
                     self.rr_times.append(t)
                     self.rr_bpm.append(bpm)

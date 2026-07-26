@@ -55,7 +55,7 @@ from PyQt6.QtWidgets import (
 # --- Generic infrastructure (keep for ECG) ---
 from ecg_loader import ECGFileLoader
 from ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
-from ver_config import ACQ_CONFIG, EPOCH_CONFIG, FILE_CONFIG, FILTER_CONFIG, SERIAL_CONFIG, SPECIES
+from ver_config import ACQ_CONFIG, EPOCH_CONFIG, FILE_CONFIG, FILTER_CONFIG, SERIAL_CONFIG
 from ver_display import VERDisplayWidget
 from ver_filter import BandpassFilter
 from ver_logging import setup_logging
@@ -677,38 +677,9 @@ class VERMainWindow(QMainWindow):
         self._sync_artifact_settings_from_ui()
         self._build_menu()
 
-    def _species_options(self) -> list[str]:
-        """Return the runtime species choices exposed by ver_config."""
-
-        if isinstance(SPECIES, dict):
-            species_values = SPECIES.values()
-        elif SPECIES is None:
-            return []
-        elif isinstance(SPECIES, str):
-            species_values = [SPECIES]
-        else:
-            try:
-                species_values = list(SPECIES)
-            except TypeError:
-                log.warning("Unexpected SPECIES configuration %r; using its string form.", SPECIES)
-                species_values = [str(SPECIES)]
-        return sorted(str(species).strip() for species in species_values if str(species).strip())
-
-    def _set_species_selection(self, species_value: str) -> None:
-        """Restore the Box 2 species choice, tolerating untrimmed input and missing values."""
-
-        if not hasattr(self, "file_species_combo"):
-            return
-        species_idx = self.file_species_combo.findText(species_value.strip())
-        self.file_species_combo.setCurrentIndex(species_idx if species_idx >= 0 else 0)
-
     def _selected_species_value(self) -> str:
-        """Return the Box 2 species selection, even if called before the combo is built."""
-
-        if not hasattr(self, "file_species_combo"):
-            return ""
-        species_value = self.file_species_combo.currentText().strip()
-        return "" if species_value == "(not set)" else species_value
+        """Legacy stub — species combo removed from ECG path; returns empty string."""
+        return ""
 
     def _launch_usb_test(self):
         """Launches the dedicated USB test program directly within the application."""
@@ -1024,7 +995,7 @@ class VERMainWindow(QMainWindow):
     def _select_data_file(self, initial: bool = False):
         default_path = str(Path.cwd())
         selected, _ = QFileDialog.getOpenFileName(
-            self, "Select ECG data file (one column, plain text)", default_path,
+            self, "Select ECG File (plain text)", default_path,
             "Text Files (*.txt);;All Files (*)"
         )
 
@@ -1037,7 +1008,8 @@ class VERMainWindow(QMainWindow):
                     self, "Invalid ECG File",
                     "The selected file contains no valid numeric data.\n\n"
                     "Expected: plain .txt file with one numeric value per line.\n\n"
-                    + "\n".join(errors[:5]),
+                    + "\n".join(errors[:5])
+                    + (f"\n… ({len(errors) - 5} more issue(s) not shown)" if len(errors) > 5 else ""),
                 )
                 return
             if errors:
