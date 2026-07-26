@@ -64,4 +64,6 @@ features (file replay, live USB, report export) remain functional.
 ## Next steps
 
 See [TRANSITION.md — Recommended roadmap](TRANSITION.md#recommended-roadmap)
-for the proposed ECG-specific development plan.
+for the first-pass assessment and phased roadmap, and
+[docs/ecg-transition-priorities.md](docs/ecg-transition-priorities.md)
+for the ranked module replacement list and safe sequencing plan.
