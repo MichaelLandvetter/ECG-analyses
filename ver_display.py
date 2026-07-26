@@ -24,8 +24,8 @@ from ver_config import ACQ_CONFIG, DISPLAY_CONFIG, EPOCH_CONFIG
 # from QGraphicsGridLayout columns/rows when restoring the normal layout.
 _LAYOUT_UNCONSTRAINED = 16_777_215.0
 
-_RAW_TITLE_NORMAL = "Raw + Filtered EEG  \u00b7 double-click to enlarge"
-_RAW_TITLE_FOCUSED = "Raw + Filtered EEG  \u00b7 double-click to restore"
+_RAW_TITLE_NORMAL = "Raw + Filtered Signal  \u00b7 double-click to enlarge"
+_RAW_TITLE_FOCUSED = "Raw + Filtered Signal  \u00b7 double-click to restore"
 
 # Hint-only strings appended to the dynamic flash-count title in update_scope_panel.
 _SCOPE_HINT_NORMAL = "  \u00b7 double-click to enlarge"
@@ -153,7 +153,7 @@ class VERDisplayWidget(QWidget):
         self.status_label.setText(text)
 
     def toggle_raw_focus(self) -> None:
-        """Toggle the Raw + Filtered EEG panel between normal and focused (enlarged) view.
+        """Toggle the Raw + Filtered Signal panel between normal and focused (enlarged) view.
 
         Double-click the panel to enlarge it; double-click again to restore the
         standard multi-panel layout.  Only layout/visibility state is changed —
@@ -274,12 +274,15 @@ class VERDisplayWidget(QWidget):
         if flash_count_accepted is not None:
             rejected = flash_count - flash_count_accepted
             title = (
-                f"Scope View - Flash {flash_count}/{EPOCH_CONFIG['flashes_per_session']} "
+                f"Scope View - Trigger {flash_count}/{EPOCH_CONFIG['flashes_per_session']} "
                 f"| Acc {flash_count_accepted} Rej {rejected} "
                 f"| {session_number}/{EPOCH_CONFIG['num_sessions']}"
             )
         else:
-            title = f"Scope View - Flash {flash_count}/{EPOCH_CONFIG['flashes_per_session']} | {session_number}/{EPOCH_CONFIG['num_sessions']}"
+            title = (
+                f"Scope View - Trigger {flash_count}/{EPOCH_CONFIG['flashes_per_session']} "
+                f"| {session_number}/{EPOCH_CONFIG['num_sessions']}"
+            )
         # Append the double-click hint to the title regardless of which branch was taken.
         hint = _SCOPE_HINT_FOCUSED if self._scope_focused else _SCOPE_HINT_NORMAL
         self.plot_scope.setTitle(title + hint)

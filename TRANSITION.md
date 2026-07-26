@@ -33,8 +33,8 @@ codebase into this ECG-oriented repository.
 
 | Module | Role | What needs changing |
 |--------|------|---------------------|
-| `ver_main.py` | Main UI window, all tab and workflow orchestration | Window title updated to ECG; About text updated. Internal VER naming (`session_ver_peaks`, `detect_ver_peaks`, tab label "VER Classifier Settings") should be refactored in a later pass. |
-| `ver_display.py` | Live scrolling signal display + epoch overlay + wavelet panel | Plot title "VER Evolution" updated to "Signal Evolution". "No VER" overlay text updated to "No response". Class name `VERDisplayWidget` can be renamed later. |
+| `ver_main.py` | Main UI window, all tab and workflow orchestration | Window title updated to ECG; About text updated; the classifier tab is now marked transitional. Internal VER naming (`session_ver_peaks`, `detect_ver_peaks`) should be refactored in a later pass. |
+| `ver_display.py` | Live scrolling signal display + epoch overlay + wavelet panel | Plot title "VER Evolution" updated to "Signal Evolution". "No VER" overlay text updated to "No response". Raw/Scope panel wording now uses neutral signal/trigger terminology. Class name `VERDisplayWidget` can be renamed later. |
 | `ver_config.py` | Application-wide configuration dictionaries | Docstring updated. `SPECIES` list is fish-specific — should be replaced or removed for ECG. `EPOCH_CONFIG` flash-count keys remain as inherited placeholders. |
 | `ver_preflight.py` | Whole-file artifact threshold suggestion | Logic is generic. Imports `VERScopeProcessor` — will follow when scope is replaced. |
 
@@ -69,7 +69,12 @@ ECG-oriented without breaking the inherited application:
    `~/.ver_analyses/logs/` to `~/.ecg_analyses/logs/`.
 6. **`ver_display.py`** — plot title `"VER Evolution"` → `"Signal Evolution"`;
    overlay text `"No VER"` → `"No response"`.
-7. **`ver_report.py`** — plot title `"VER Evolution"` → `"Signal Evolution"`.
+7. **`ver_report.py`** — plot title `"VER Evolution"` → `"Signal Evolution"` and
+   statistics page title updated to `"ECG Transition — Peak Statistics"`.
+8. **`ver_ml_logger.py`** — human validation dialog now uses neutral
+   `"Response"` / `"No response"` wording in the review table.
+9. **`ver_USB_test.py`** — standalone diagnostic window updated from EEG-only
+   wording to neutral signal/trigger wording.
 
 ## What was intentionally left unchanged
 
@@ -84,10 +89,10 @@ ECG-oriented without breaking the inherited application:
 - `SPECIES` list in `ver_config.py` — fish-specific content, but removing it
   now would break the existing UI dropdown. Schedule for replacement with
   ECG-relevant metadata fields (patient ID, lead configuration, etc.).
-- "VER Classifier Settings" tab label — low risk but tied to the classifier
-  module; rename when the classifier is replaced.
 - `session_ver_peaks` variable names in `ver_main.py` — internal state names;
   refactor together with `ver_peaks.py` replacement.
+- Peak-1 / Peak-2 / Peak-3 labels and fish `SPECIES` metadata — still inherited
+  placeholders and should be replaced when the ECG scope/peak model is defined.
 
 ---
 

@@ -488,7 +488,7 @@ def _build_stats_table_page(
     
     # 1. PRE-POPULATE ROWS FIRST (So we can calculate height correctly)
     col_labels = [
-        "Block", "Label", "VER?", "Reason",
+        "Block", "Label", "Detected?", "Reason",
         "Peak-1 Latency (ms)", "Peak-1 Amp",
         "Peak-2 Latency (ms)", "Peak-2 Amp",
         "Peak-3 Latency (ms)", "Peak-3 Amp",
@@ -551,7 +551,7 @@ def _build_stats_table_page(
     fig_height = max(5, 1.5 + (0.5 * len(rows)))
     fig, ax = plt.subplots(figsize=(16, fig_height), facecolor="white")
     ax.axis("off")
-    ax.set_title("VER Analysis — Peak Statistics", fontsize=14, fontweight="bold", y=1.0)
+    ax.set_title("ECG Transition — Peak Statistics", fontsize=14, fontweight="bold", y=1.0)
     
     # 3. TABLE SETUP
     custom_widths = [0.04, 0.07, 0.04, 0.10, 0.09, 0.07, 0.09, 0.07, 0.09, 0.07, 0.06, 0.09, 0.07]

@@ -40,10 +40,10 @@ The following areas still contain VER-specific logic or wording and are
 | `ver_scope.py` | Epoch trigger model is flash-locked (VER). ECG will need R-peak or arrhythmia trigger. |
 | `ver_peaks.py` | Peak detection targets P1/P2/P3 VER morphology. ECG morphology (P, Q, R, S, T) TBD. |
 | `ver_classifier.py` | VER-specific SNR + latency classifier. ECG classifier TBD. |
-| `ver_report.py` | Report wording, CSV headers, and plot titles reference VER. |
+| `ver_report.py` | CSV headers and several report/statistics labels still reflect the inherited VER workflow. |
 | `ver_config.py` | `SPECIES` list is fish-specific. `EPOCH_CONFIG` comments reference flashes. |
-| `ver_ml_logger.py` | ML training schema targets VER labels ("VER?", "Confirmed", etc.). |
-| UI labels | "VER Classifier Settings" tab, "No VER" overlay, "VER Evolution" plot title. |
+| `ver_ml_logger.py` | ML training schema still targets the inherited response/no-response review flow and fish metadata. |
+| UI labels | Trigger/block wording still derives from the inherited flash-based workflow; species metadata and Peak-1/2/3 labels remain transitional placeholders. |
 | `ver_main.py` | `session_ver_peaks`, `detect_ver_peaks`, `save_ver_report` — internal VER naming. |
 
 ## Module overview
