@@ -29,7 +29,7 @@ _HUMAN_REASON_DEFAULTS = ["", "Confirmed", "Noise", "Artifact", "Unclear", "Othe
 class HumanValidationDialog(QDialog):
     def __init__(self, block_data, png_path=None, parent=None, filename="", species=""):
         super().__init__(parent)
-        self.setWindowTitle("Transitional Analysis - Human Validation")
+        self.setWindowTitle("Transitional Analysis - Manual Review")
         self.resize(1400, 780)
         self.block_data = block_data
         self.filename = filename
@@ -61,17 +61,17 @@ class HumanValidationDialog(QDialog):
             main_layout.addWidget(lbl)
 
         # --- 2. MIDDLE: Instructions ---
-        lbl = QLabel("<b>Human-in-the-Loop Validation</b> &nbsp;&nbsp;|&nbsp;&nbsp; "
+        lbl = QLabel("<b>Human-in-the-Loop Review</b> &nbsp;&nbsp;|&nbsp;&nbsp; "
                      "1. Review the generated report above. &nbsp;&nbsp;|&nbsp;&nbsp; "
-                     "2. Compare it with the computer's predictions below. &nbsp;&nbsp;|&nbsp;&nbsp; "
+                     "2. Compare it with the automated predictions below. &nbsp;&nbsp;|&nbsp;&nbsp; "
                      "3. Correct any mistakes. &nbsp;&nbsp;|&nbsp;&nbsp; "
-                     "4. Click Save to append to your ML dataset.")
+                     "4. Click Save to append to the transitional review dataset.")
         lbl.setWordWrap(True)
         main_layout.addWidget(lbl)
 
         metadata_lbl = QLabel(
             f"<b>Source file:</b> {self.filename or '(not set)'}<br>"
-            f"<b>Species:</b> {self.species or '(not set)'}"
+            f"<b>Subject/Species:</b> {self.species or '(not set)'}"
         )
         metadata_lbl.setWordWrap(True)
         metadata_lbl.setStyleSheet("background-color: #f5f5f5; padding: 6px; border: 1px solid #d0d0d0;")
@@ -96,8 +96,8 @@ class HumanValidationDialog(QDialog):
         self.table = QTableWidget()
         self.table.setColumnCount(12)
         self.table.setHorizontalHeaderLabels([
-            "Block", "Peak Power", "Scale (Hz)", "P1 Latency", "P2 Latency",
-            "P3 Latency", "SNR", "Computer Label", "Computer Reason",
+            "Block", "Peak Power", "Scale (Hz)", "Feature-1 Latency", "Feature-2 Latency",
+            "Feature-3 Latency", "SNR", "Automated Label", "Automated Reason",
             "Human Review", "Human Reason", "Review Confidence",
         ])
         self.table.setRowCount(len(block_data))
@@ -147,7 +147,7 @@ class HumanValidationDialog(QDialog):
 
         # --- 4. BOTTOM: Save Button ---
         btn_layout = QHBoxLayout()
-        save_btn = QPushButton("💾 Save Validations to CSV and create the Report files")
+        save_btn = QPushButton("💾 Save review decisions to CSV and regenerate report files")
         save_btn.setStyleSheet("font-weight: bold; background-color: #4472C4; color: white; padding: 10px;")
         save_btn.clicked.connect(self.save_data)
         btn_layout.addStretch()

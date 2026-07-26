@@ -31,8 +31,8 @@ _RAW_TITLE_FOCUSED = "Raw + Filtered Signal  \u00b7 double-click to restore"
 _SCOPE_HINT_NORMAL = "  \u00b7 double-click to enlarge"
 _SCOPE_HINT_FOCUSED = "  \u00b7 double-click to restore"
 # Full static titles used when no flash data is present (initial state, reset, toggle).
-_SCOPE_TITLE_NORMAL = "Scope View  \u00b7 double-click to enlarge"
-_SCOPE_TITLE_FOCUSED = "Scope View  \u00b7 double-click to restore"
+_SCOPE_TITLE_NORMAL = "Analysis Scope  \u00b7 double-click to enlarge"
+_SCOPE_TITLE_FOCUSED = "Analysis Scope  \u00b7 double-click to restore"
 
 
 class _FocusableViewBox(pg.ViewBox):
@@ -136,7 +136,7 @@ class VERDisplayWidget(QWidget):
         self.scope_avg_curve.setZValue(10)
         self.scope_overlay_curves: List[pg.PlotCurveItem] = []
 
-        self.plot_wavelet = self.graphics.addPlot(row=2, col=1, title="Wavelet Scalogram (all sessions)")
+        self.plot_wavelet = self.graphics.addPlot(row=2, col=1, title="Wavelet Scalogram (all analysis blocks)")
         self.plot_wavelet.getViewBox().setMouseEnabled(x=False, y=True)
         self.plot_wavelet.setLabel("bottom", "Time", "ms")
         self.plot_wavelet.setLabel("left", "Frequency", "Hz")
@@ -274,13 +274,13 @@ class VERDisplayWidget(QWidget):
         if flash_count_accepted is not None:
             rejected = flash_count - flash_count_accepted
             title = (
-                f"Scope View - Trigger {flash_count}/{EPOCH_CONFIG['flashes_per_session']} "
+                f"Analysis Scope - Trigger {flash_count}/{EPOCH_CONFIG['flashes_per_session']} "
                 f"| Acc {flash_count_accepted} Rej {rejected} "
                 f"| {session_number}/{EPOCH_CONFIG['num_sessions']}"
             )
         else:
             title = (
-                f"Scope View - Trigger {flash_count}/{EPOCH_CONFIG['flashes_per_session']} "
+                f"Analysis Scope - Trigger {flash_count}/{EPOCH_CONFIG['flashes_per_session']} "
                 f"| {session_number}/{EPOCH_CONFIG['num_sessions']}"
             )
         # Append the double-click hint to the title regardless of which branch was taken.
@@ -307,15 +307,15 @@ class VERDisplayWidget(QWidget):
         tr.translate(x0, y0)
         tr.scale(dx, dy)
         self.wavelet_image.setTransform(tr)
-        self.plot_wavelet.setTitle(f"Wavelet Scalogram - (All Sessions)")
+        self.plot_wavelet.setTitle("Wavelet Scalogram - (All Analysis Blocks)")
 
     def update_wavelet_stats(self, peak_freq: float, peak_latency_ms: float, peak_power: float, session_number: int, ver_peaks=None) -> None:
         wavelet_text = f"M{session_number} — Wavelet peak: {peak_freq:.1f} Hz | {peak_latency_ms:.0f} ms | Power: {peak_power:.3e}"
         if ver_peaks:
             def fmt(p): return f"{p['latency_ms']:.0f} ms ({p['amplitude']:.4f})" if p.get('found') else "\u2014"
-            peaks_text = (f"  |  Peak-1: {fmt(ver_peaks.get('Peak-1', {}))}  "
-                          f"Peak-2: {fmt(ver_peaks.get('Peak-2', {}))}  "
-                          f"Peak-3: {fmt(ver_peaks.get('Peak-3', {}))}")
+            peaks_text = (f"  |  Feature-1: {fmt(ver_peaks.get('Peak-1', {}))}  "
+                          f"Feature-2: {fmt(ver_peaks.get('Peak-2', {}))}  "
+                          f"Feature-3: {fmt(ver_peaks.get('Peak-3', {}))}")
             wavelet_text += peaks_text
         self.wavelet_stats_label.setText(wavelet_text)
 
