@@ -238,6 +238,34 @@ and `ecg_report.py` once the peak output schema is defined.
 
 ---
 
+## What was produced in the sixth pass (first ECG analysis planning pass)
+
+This pass produces the first real ECG-specific requirements and module plan.
+No analysis logic is implemented here; the deliverable is a design document
+that answers what the ECG pipeline should do, how it should be structured, and
+in what order it should be built.
+
+1. **`ecg_analysis_plan.md` created (NEW)** — Comprehensive ECG-oriented design
+   document covering:
+   - Executive summary of the transition so far
+   - First ECG analysis scope (R-peak detection, HR/RR metrics, beat CSV export)
+   - Target ECG user workflow and how it differs from the inherited VER flow
+   - ECG-specific module boundaries for `ecg_scope.py`, `ecg_peaks.py`,
+     `ecg_metrics.py`, `ecg_classifier.py`, `ecg_report.py`, and `ver_display.py`
+   - Reuse vs. replacement classification for every existing module
+   - First outputs and data contracts (`ECGScopeResult`, `ECGPeaksResult`,
+     `ECGMetrics`, `ECGReportData`, Phase 1 CSV columns)
+   - Nine-step ordered implementation roadmap tied to actual file names and
+     import chains
+   - Key risks and open questions with mitigations
+
+**Recommended next step after this pass:**
+Implement Steps B and C from `ecg_analysis_plan.md`: create `ecg_metrics.py`
+and `ecg_peaks.py` as the first real ECG-specific code, then follow with the
+`ecg_scope.py` R-peak trigger replacement (Step D).
+
+---
+
 ## What was intentionally left unchanged
 
 - All module file names (`ver_*.py`) — renaming would break all imports and is
