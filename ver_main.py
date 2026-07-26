@@ -75,7 +75,7 @@ from ver_analysis_flow import (
 
 # --- Inherited VER analysis engine (transitional) ---
 # These imports represent the inherited VER-specific analysis boundary.
-# To replace with ECG modules, update ver_analysis_engine.py and ver_scope.py;
+# To replace with ECG modules, update ver_analysis_engine.py and ecg_scope.py;
 # no other changes to this file are needed for those replacements.
 # See docs/ecg-transition-priorities.md for the full replacement sequence.
 from ver_analysis_engine import (       # REPLACEMENT BOUNDARY — see ver_analysis_engine.py
@@ -83,7 +83,7 @@ from ver_analysis_engine import (       # REPLACEMENT BOUNDARY — see ver_analy
     save_ver_report,
     refresh_classifier_cfg as _refresh_analysis_engine_cfg,
 )
-from ver_scope import VERScopeProcessor  # REPLACEMENT TARGET 1 — ver_scope.py → ecg_scope.py
+from ecg_scope import ECGScopeProcessor  # REPLACEMENT BOUNDARY (transitional placeholder)
 
 log = logging.getLogger(__name__)
 ARTIFACT_THRESHOLD_MIN_UV = 0.0001
@@ -671,7 +671,7 @@ class VERMainWindow(QMainWindow):
         self._scope_panel_session = None
 
         self.bandpass = BandpassFilter()
-        self.scope = VERScopeProcessor(self.bandpass)
+        self.scope = ECGScopeProcessor(self.bandpass)
 
         self._build_ui()
         self._sync_artifact_settings_from_ui()
@@ -1306,7 +1306,7 @@ class VERMainWindow(QMainWindow):
             "sample_rate": ACQ_CONFIG["sample_rate"],
             "order": FILTER_CONFIG["order"],
         })
-        self.scope = VERScopeProcessor(self.bandpass)
+        self.scope = ECGScopeProcessor(self.bandpass)
         self.session_wavelets = []
         self.session_wavelet_freqs = None
         self.session_labels = []
