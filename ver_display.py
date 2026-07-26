@@ -76,11 +76,11 @@ class VERDisplayWidget(QWidget):
         self.raw_buffer = deque(maxlen=self.max_scroll_samples)
         self.filtered_buffer = deque(maxlen=self.max_scroll_samples)
         self.time_buffer = deque(maxlen=self.max_scroll_samples)
-        self.r_peak_times: deque = deque(maxlen=_MAX_PEAK_HISTORY)  # R-peak timestamps (s)
+        self.r_peak_times: deque[float] = deque(maxlen=_MAX_PEAK_HISTORY)  # R-peak timestamps (s)
         # rr_times / rr_bpm: bounded to the same history depth as r_peak_times so
         # they do not grow unboundedly during long recordings.
-        self.rr_times: deque = deque(maxlen=_MAX_PEAK_HISTORY)      # timestamps for HR curve
-        self.rr_bpm: deque = deque(maxlen=_MAX_PEAK_HISTORY)        # instantaneous BPM values
+        self.rr_times: deque[float] = deque(maxlen=_MAX_PEAK_HISTORY)      # timestamps for HR curve
+        self.rr_bpm: deque[float] = deque(maxlen=_MAX_PEAK_HISTORY)        # instantaneous BPM values
         self._last_peak_time: float | None = None
         self.sample_index = 0
         self._last_scroll_draw = 0.0
@@ -222,12 +222,14 @@ class VERDisplayWidget(QWidget):
             else:
                 self.r_peak_scatter.setData(x=[], y=[])
 
-        # Draw HR tachometer
+        # Draw HR tachometer — filter rr_times/rr_bpm to the visible window.
+        # Deques are bounded to _MAX_PEAK_HISTORY entries so this stays O(500).
         if self.rr_times:
-            visible_rr = [(t_, b) for t_, b in zip(self.rr_times, self.rr_bpm) if x[0] <= t_ <= x[-1]]
-            if visible_rr:
-                tx, bx = zip(*visible_rr)
-                self.curve_hr.setData(np.array(tx), np.array(bx))
+            rr_t = np.array(self.rr_times, dtype=float)
+            rr_b = np.array(self.rr_bpm, dtype=float)
+            mask = (rr_t >= x[0]) & (rr_t <= x[-1])
+            if mask.any():
+                self.curve_hr.setData(rr_t[mask], rr_b[mask])
             else:
                 self.curve_hr.setData([], [])
 

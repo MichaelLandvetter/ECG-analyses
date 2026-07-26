@@ -1004,12 +1004,14 @@ class VERMainWindow(QMainWindow):
             loader = ECGFileLoader(selected, sample_rate=ACQ_CONFIG["sample_rate"])
             signal, errors = loader.load()
             if signal.size == 0:
+                error_detail = "\n".join(errors[:5])
+                if len(errors) > 5:
+                    error_detail += f"\n… ({len(errors) - 5} more issue(s) not shown)"
                 QMessageBox.warning(
                     self, "Invalid ECG File",
                     "The selected file contains no valid numeric data.\n\n"
-                    "Expected: plain .txt file with one numeric value per line.\n\n"
-                    + "\n".join(errors[:5])
-                    + (f"\n… ({len(errors) - 5} more issue(s) not shown)" if len(errors) > 5 else ""),
+                    "Expected: plain .txt file with one numeric value per line."
+                    + (f"\n\n{error_detail}" if error_detail else ""),
                 )
                 return
             if errors:

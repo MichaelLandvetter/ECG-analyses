@@ -51,7 +51,7 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-from ecg_config import ECG_FILE_CONFIG
+from ecg_config import ECG_CONFIG, ECG_FILE_CONFIG
 
 # Comment-line prefixes: lines starting with any of these are silently skipped.
 # Defined once in ecg_config.ECG_FILE_CONFIG["comment_chars"]; imported here to
@@ -81,7 +81,7 @@ class ECGFileLoader:
     def __init__(
         self,
         file_path: str,
-        sample_rate: float = 250.0,
+        sample_rate: float = ECG_CONFIG["sample_rate"],
         speed_factor: float | None = 1.0,
     ):
         self.file_path = Path(file_path)
@@ -200,7 +200,7 @@ class ECGFileLoader:
                 next_yield_time += sleep_interval
                 now = time.perf_counter()
                 wait = next_yield_time - now
-                if wait > _MIN_SLEEP_S:  # skip sub-2 ms waits: shorter than OS sleep resolution
+                if wait > _MIN_SLEEP_S:  # skip waits under 2 ms: shorter than OS sleep resolution
                     time.sleep(wait)
                 elif wait < -_CLOCK_RESET_S:
                     # Fell far behind (e.g. after a pause); reset the clock.
