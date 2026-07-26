@@ -33,3 +33,4 @@ from ver_scope import VERScopeProcessor
 class ECGScopeProcessor(VERScopeProcessor):
     """Transitional ECG-named boundary that delegates to inherited VER logic."""
 
+    pass
