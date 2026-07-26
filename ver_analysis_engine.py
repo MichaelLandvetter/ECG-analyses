@@ -39,22 +39,32 @@ sequence and safe ordering rationale.
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
+# Public API of this adapter module — defines the VER analysis engine surface
+# ---------------------------------------------------------------------------
+__all__ = [
+    "detect_ver_peaks",
+    "evaluate_ver_peak",
+    "save_ver_report",
+    "refresh_classifier_cfg",
+]
+
+# ---------------------------------------------------------------------------
 # INHERITED VER ANALYSIS ENGINE — all re-exported through this adapter layer
 # ---------------------------------------------------------------------------
 
 # REPLACEMENT TARGET 2 — ver_peaks.py → ecg_peaks.py
 # ECG equivalent: R-peak / P / Q / R / S / T morphology detection
-from ver_peaks import detect_ver_peaks                          # noqa: F401
+from ver_peaks import detect_ver_peaks
 from ver_peaks import refresh_classifier_cfg as _refresh_peaks_cfg
 
 # REPLACEMENT TARGET 3 — ver_classifier.py → ecg_classifier.py
 # ECG equivalent: QRS duration, PR/QT interval, rhythm classification
-from ver_classifier import evaluate_ver_peak                    # noqa: F401
+from ver_classifier import evaluate_ver_peak
 from ver_classifier import refresh_classifier_cfg as _refresh_classifier_cfg
 
 # REPLACEMENT TARGET 4 — ver_report.py → ecg_report.py
 # ECG equivalent: PDF/CSV with ECG-standard metrics and interval tables
-from ver_report import save_ver_report                          # noqa: F401
+from ver_report import save_ver_report
 
 
 def refresh_classifier_cfg(cfg: dict) -> None:
