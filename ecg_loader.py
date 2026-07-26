@@ -200,7 +200,7 @@ class ECGFileLoader:
                 next_yield_time += sleep_interval
                 now = time.perf_counter()
                 wait = next_yield_time - now
-                if wait > _MIN_SLEEP_S:  # skip waits under 2 ms: shorter than OS sleep resolution
+                if wait > _MIN_SLEEP_S:  # skip waits below minimum sleep threshold (OS granularity)
                     time.sleep(wait)
                 elif wait < -_CLOCK_RESET_S:
                     # Fell far behind (e.g. after a pause); reset the clock.

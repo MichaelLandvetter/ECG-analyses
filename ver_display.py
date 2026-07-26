@@ -45,7 +45,7 @@ _MAX_RR_INTERVAL_S = 3.0
 
 _RAW_TITLE_NORMAL = "Raw ECG + Filtered ECG  \u00b7 double-click to enlarge"
 _RAW_TITLE_FOCUSED = "Raw ECG + Filtered ECG  \u00b7 double-click to restore"
-_TACHO_TITLE = "Heart Rate — R-peak tachometer (placeholder)"
+_TACHO_TITLE = "Heart Rate \u2013 R-peak tachometer (placeholder)"
 
 
 class _FocusableViewBox(pg.ViewBox):
@@ -181,11 +181,16 @@ class VERDisplayWidget(QWidget):
                 rr_s = t - self._last_peak_time
                 # Physiological sanity range: RR 0.2–3.0 s → 20–300 BPM.
                 # Values outside this window are treated as missed/double detections.
+                # _last_peak_time is only updated when the interval is accepted so
+                # that a single spurious detection cannot corrupt the reference time
+                # for subsequent valid beats.
                 if _MIN_RR_INTERVAL_S < rr_s < _MAX_RR_INTERVAL_S:
                     bpm = 60.0 / rr_s
                     self.rr_times.append(t)
                     self.rr_bpm.append(bpm)
-            self._last_peak_time = t
+                    self._last_peak_time = t
+            else:
+                self._last_peak_time = t
 
         now = time.perf_counter()
         if now - self._last_scroll_draw < self._scroll_min_interval:

@@ -52,8 +52,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-# --- Generic infrastructure (keep for ECG) ---
+# --- ECG-path modules ---
 from ecg_loader import ECGFileLoader
+
+# --- Generic infrastructure (keep for ECG) ---
 from ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
 from ver_config import ACQ_CONFIG, EPOCH_CONFIG, FILE_CONFIG, FILTER_CONFIG, SERIAL_CONFIG
 from ver_display import VERDisplayWidget
@@ -735,7 +737,7 @@ class VERMainWindow(QMainWindow):
         # ==========================================
         # --- Data File Widgets ---
         self.file_label = QLabel("No file selected")
-        open_btn = QPushButton("Open ECG File (.txt)")
+        open_btn = QPushButton("Open ECG File (plain text)")
         open_btn.clicked.connect(lambda: self._select_data_file(initial=False))
 
         # --- Filter Widgets (ECG bandpass only) ---
