@@ -63,7 +63,8 @@ ECG_DISPLAY_CONFIG: dict = {
 # The active ECG input path always expects a single-column .txt file.
 
 ECG_FILE_CONFIG: dict = {
-    # Lines starting with these prefixes are treated as comments and skipped.
+    # Lines starting with these prefixes are treated as single-line comments and skipped.
+    # Multi-line comment blocks (e.g. /* ... */) are not supported — only line-based comments.
     "comment_chars": ("#", "//", "%"),
     # Column index for the ECG signal (0-based; only column present).
     "ecg_column": 0,

@@ -76,7 +76,7 @@ class VERDisplayWidget(QWidget):
         self.raw_buffer = deque(maxlen=self.max_scroll_samples)
         self.filtered_buffer = deque(maxlen=self.max_scroll_samples)
         self.time_buffer = deque(maxlen=self.max_scroll_samples)
-        self.r_peak_times: deque[float] = deque(maxlen=_MAX_PEAK_HISTORY)  # R-peak timestamps (s)
+        self.r_peak_times: deque[float] = deque(maxlen=_MAX_PEAK_HISTORY)  # R-peak timestamps in seconds (sample_index / sample_rate)
         # rr_times / rr_bpm: bounded to the same history depth as r_peak_times so
         # they do not grow unboundedly during long recordings.
         self.rr_times: deque[float] = deque(maxlen=_MAX_PEAK_HISTORY)      # timestamps for HR curve
@@ -180,7 +180,8 @@ class VERDisplayWidget(QWidget):
             if self._last_peak_time is not None:
                 rr_s = t - self._last_peak_time
                 # Physiological sanity range: RR 0.2–3.0 s → 20–300 BPM.
-                # Values outside this window are treated as missed/double detections.
+                # Values outside this window are treated as missed/double detections
+                # and are silently dropped (no entry added to rr_times/rr_bpm).
                 # _last_peak_time is only updated when the interval is accepted so
                 # that a single spurious detection cannot corrupt the reference time
                 # for subsequent valid beats.
@@ -228,7 +229,8 @@ class VERDisplayWidget(QWidget):
                 self.r_peak_scatter.setData(x=[], y=[])
 
         # Draw HR tachometer — filter rr_times/rr_bpm to the visible window.
-        # Deques are bounded to _MAX_PEAK_HISTORY entries so this stays O(500).
+        # Deques are bounded to _MAX_PEAK_HISTORY entries so converting to arrays
+        # and filtering is bounded to O(_MAX_PEAK_HISTORY) regardless of recording length.
         if self.rr_times:
             rr_t = np.array(self.rr_times, dtype=float)
             rr_b = np.array(self.rr_bpm, dtype=float)

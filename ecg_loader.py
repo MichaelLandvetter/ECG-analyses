@@ -125,6 +125,10 @@ class ECGFileLoader:
             return np.array([], dtype=float), errors
 
         with self.file_path.open(encoding="utf-8", errors="replace") as fh:
+            # errors='replace' keeps the loader resilient to occasional invalid UTF-8
+            # sequences in binary artefacts.  Lines that cannot be parsed as float are
+            # already collected in the errors list, so any replacement characters there
+            # will surface as parse errors rather than silently corrupting data.
             for lineno, raw_line in enumerate(fh, start=1):
                 line = raw_line.strip()
                 if not line:
@@ -202,6 +206,9 @@ class ECGFileLoader:
                 wait = next_yield_time - now
                 if wait > _MIN_SLEEP_S:  # skip waits below minimum sleep threshold (OS granularity)
                     time.sleep(wait)
+                    # When wait <= _MIN_SLEEP_S the sleep is skipped but next_yield_time
+                    # is not reset, so the small accumulated debt is naturally recouped
+                    # over the following samples — intentional steady-state drift correction.
                 elif wait < -_CLOCK_RESET_S:
                     # Fell far behind (e.g. after a pause); reset the clock.
                     next_yield_time = now
