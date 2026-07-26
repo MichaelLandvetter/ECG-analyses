@@ -1,4 +1,11 @@
-"""Configuration for the VER analysis application."""
+"""Configuration for the ECG analysis application.
+
+NOTE (transition): This file was copied from the VER-analyses codebase.
+Several keys and comments (e.g. SPECIES list, flash-count terminology,
+``fish VER`` references) are VER-oriented placeholders that will be updated
+when the corresponding analysis modules are replaced for ECG.
+See TRANSITION.md for details.
+"""
 
 ACQ_CONFIG = {
     "sample_rate": 250,

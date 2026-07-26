@@ -1,4 +1,11 @@
-"""Main application entry point for modular VER analysis."""
+"""Main application entry point for modular ECG analysis.
+
+NOTE (transition): This module was copied from the VER-analyses codebase.
+Class names, internal variable names, and some UI labels still carry the
+``VER`` prefix.  They are intentional placeholders until the corresponding
+analysis modules (ver_scope, ver_peaks, ver_classifier) are replaced with
+ECG-specific implementations.  See TRANSITION.md for the full roadmap.
+"""
 
 from __future__ import annotations
 
@@ -639,7 +646,7 @@ class VERMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings_manager = SettingsManager()
-        self.setWindowTitle("VER Analysis")
+        self.setWindowTitle("ECG Analysis")
         self.resize(1280, 920)
 
         self.data_file = None
@@ -1041,8 +1048,11 @@ class VERMainWindow(QMainWindow):
     def _show_about(self):
         QMessageBox.information(
             self,
-            "About VER Analysis",
-            "Modular VER analysis with real-time replay, trigger-locked averaging, wavelet analysis, and report export.",
+            "About ECG Analysis",
+            "ECG Analysis — modular signal workbench with real-time replay, "
+            "trigger-locked averaging, wavelet analysis, and report export.\n\n"
+            "Inherited from the VER-analyses codebase; ECG-specific analysis "
+            "logic is in development.  See TRANSITION.md for details.",
         )
 
     def _on_downsample(self):
@@ -1744,7 +1754,7 @@ class VERMainWindow(QMainWindow):
 
 def main():
     log_path = setup_logging()
-    log.info("VER Analysis application starting (log: %s)", log_path)
+    log.info("ECG Analysis application starting (log: %s)", log_path)
     app = QApplication(sys.argv)
     win = VERMainWindow()
     win.show()

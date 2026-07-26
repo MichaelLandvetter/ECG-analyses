@@ -1,4 +1,10 @@
-"""Generate final summary VER report figures."""
+"""Generate final summary report figures.
+
+NOTE (transition): This module was copied from the VER-analyses codebase.
+Report wording, CSV column headers (``VER_label``, ``VER?``), and plot titles
+are VER-oriented placeholders that will be updated when the analysis modules
+are replaced for ECG.  See TRANSITION.md.
+"""
 
 from __future__ import annotations
 
@@ -391,7 +397,7 @@ def _build_figures_page(
     ax1.set_xlim(0.0, total_width)
     ax1.set_xticks(tick_positions)
     ax1.set_xticklabels(tick_labels)
-    ax1.set_title("VER Evolution")
+    ax1.set_title("Signal Evolution")
     ax1.set_xlabel("Time Block")
     ax1.set_ylabel("Amplitude (µV)")
     ax1.legend(
