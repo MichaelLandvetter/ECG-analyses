@@ -51,7 +51,12 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-_COMMENT_PREFIXES = ("#", "//", "%")
+from ecg_config import ECG_FILE_CONFIG
+
+# Comment-line prefixes: lines starting with any of these are silently skipped.
+# Defined once in ecg_config.ECG_FILE_CONFIG["comment_chars"]; imported here to
+# keep a single source of truth.
+_COMMENT_PREFIXES: tuple = ECG_FILE_CONFIG["comment_chars"]
 
 
 class ECGFileLoader:
@@ -195,7 +200,7 @@ class ECGFileLoader:
                 next_yield_time += sleep_interval
                 now = time.perf_counter()
                 wait = next_yield_time - now
-                if wait > _MIN_SLEEP_S:
+                if wait > _MIN_SLEEP_S:  # skip sub-2 ms waits: shorter than OS sleep resolution
                     time.sleep(wait)
                 elif wait < -_CLOCK_RESET_S:
                     # Fell far behind (e.g. after a pause); reset the clock.

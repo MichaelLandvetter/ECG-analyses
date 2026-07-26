@@ -34,6 +34,15 @@ from ver_config import ACQ_CONFIG, DISPLAY_CONFIG, EPOCH_CONFIG
 # from QGraphicsGridLayout rows when restoring the normal layout.
 _LAYOUT_UNCONSTRAINED = 16_777_215.0
 
+# History depth for R-peak and HR deque buffers.
+_MAX_PEAK_HISTORY = 500
+
+# Physiological sanity bounds for instantaneous RR-interval → BPM conversion.
+# RR < 0.2 s → HR > 300 BPM (artefact / double detection).
+# RR > 3.0 s → HR < 20 BPM (missed beat / asystole boundary).
+_MIN_RR_INTERVAL_S = 0.2
+_MAX_RR_INTERVAL_S = 3.0
+
 _RAW_TITLE_NORMAL = "Raw ECG + Filtered ECG  \u00b7 double-click to enlarge"
 _RAW_TITLE_FOCUSED = "Raw ECG + Filtered ECG  \u00b7 double-click to restore"
 _TACHO_TITLE = "Heart Rate — R-peak tachometer (placeholder)"
@@ -67,11 +76,11 @@ class VERDisplayWidget(QWidget):
         self.raw_buffer = deque(maxlen=self.max_scroll_samples)
         self.filtered_buffer = deque(maxlen=self.max_scroll_samples)
         self.time_buffer = deque(maxlen=self.max_scroll_samples)
-        self.r_peak_times: deque = deque(maxlen=500)   # R-peak timestamps (s)
+        self.r_peak_times: deque = deque(maxlen=_MAX_PEAK_HISTORY)  # R-peak timestamps (s)
         # rr_times / rr_bpm: bounded to the same history depth as r_peak_times so
         # they do not grow unboundedly during long recordings.
-        self.rr_times: deque = deque(maxlen=500)        # timestamps for HR curve
-        self.rr_bpm: deque = deque(maxlen=500)          # instantaneous BPM values
+        self.rr_times: deque = deque(maxlen=_MAX_PEAK_HISTORY)      # timestamps for HR curve
+        self.rr_bpm: deque = deque(maxlen=_MAX_PEAK_HISTORY)        # instantaneous BPM values
         self._last_peak_time: float | None = None
         self.sample_index = 0
         self._last_scroll_draw = 0.0
@@ -172,7 +181,7 @@ class VERDisplayWidget(QWidget):
                 rr_s = t - self._last_peak_time
                 # Physiological sanity range: RR 0.2–3.0 s → 20–300 BPM.
                 # Values outside this window are treated as missed/double detections.
-                if 0.2 < rr_s < 3.0:
+                if _MIN_RR_INTERVAL_S < rr_s < _MAX_RR_INTERVAL_S:
                     bpm = 60.0 / rr_s
                     self.rr_times.append(t)
                     self.rr_bpm.append(bpm)
