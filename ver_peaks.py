@@ -1,4 +1,32 @@
-"""Time-domain peak detection for VER waveforms (Peak-1, Peak-2, Peak-3)."""
+"""Time-domain peak detection for VER waveforms (Peak-1, Peak-2, Peak-3).
+
+INHERITED VER ANALYSIS ENGINE — REPLACEMENT TARGET 2
+=====================================================
+This module defines the VER-specific peak detection model and must be
+replaced when ECG peak detection is implemented.
+
+**VER-specific logic in this module:**
+- The P1/P2/P3 peak model (``Peak-1``, ``Peak-2``, ``Peak-3``) targets the
+  typical VER waveform morphology (0–200 ms post-flash).  These peaks have
+  no direct meaning for ECG waveforms.
+- The 0–200 ms post-stimulus search window is VER-derived; ECG needs a
+  PQRST window relative to R-peak onset.
+- ``VER_detected`` flag and ``noise_rms`` are VER-oriented outputs.
+
+**Callers (updated through ver_analysis_engine.py):**
+- ``ver_analysis_engine.py`` — re-exports ``detect_ver_peaks``; update the
+  import there to switch all callers at once.
+- ``ver_report.py`` — consumes the peak result dict; update alongside this
+  module.
+- ``ver_ml_logger.py`` — uses ``Peak-1/2/3`` keys for CSV columns.
+
+**ECG replacement (ecg_peaks.py) should expose:**
+- R-peak confirmation, QRS duration, PR interval, QT interval, amplitudes.
+- A new ``ECGPeaksResult`` TypedDict replacing ``VERPeaksResult``.
+- Update ``ver_report.py`` and ``ver_ml_logger.py`` in the same PR.
+
+See ``docs/ecg-transition-priorities.md § Rank 2`` and ``TRANSITION.md``.
+"""
 
 from __future__ import annotations
 import logging

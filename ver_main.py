@@ -19,8 +19,6 @@ from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
-import ver_classifier
-import ver_peaks
 
 if getattr(sys, 'frozen', False):
     import pyi_splash
@@ -54,15 +52,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+# --- Generic infrastructure (keep for ECG) ---
 from ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
 from ver_config import ACQ_CONFIG, EPOCH_CONFIG, FILE_CONFIG, FILE_FORMATS, FILTER_CONFIG, SERIAL_CONFIG, SPECIES
 from ver_constants import DEFAULT_SCOPE_FILTER_MODE, SCOPE_FILTER_MODES
 from ver_display import VERDisplayWidget
 from ver_filter import BandpassFilter
 from ver_logging import setup_logging
-from ver_peaks import detect_ver_peaks
-from ver_report import save_ver_report
-from ver_scope import VERScopeProcessor
 from ver_wavelet import compute_wavelet_scalogram
 from ver_downsample import downsample_labchart_file
 from ver_settings import SettingsManager
@@ -76,6 +72,18 @@ from ver_analysis_flow import (
     should_proceed_to_human_validation,
     status_message_for_analysis_complete_action,
 )
+
+# --- Inherited VER analysis engine (transitional) ---
+# These imports represent the inherited VER-specific analysis boundary.
+# To replace with ECG modules, update ver_analysis_engine.py and ver_scope.py;
+# no other changes to this file are needed for those replacements.
+# See docs/ecg-transition-priorities.md for the full replacement sequence.
+from ver_analysis_engine import (       # REPLACEMENT BOUNDARY — see ver_analysis_engine.py
+    detect_ver_peaks,
+    save_ver_report,
+    refresh_classifier_cfg as _refresh_analysis_engine_cfg,
+)
+from ver_scope import VERScopeProcessor  # REPLACEMENT TARGET 1 — ver_scope.py → ecg_scope.py
 
 log = logging.getLogger(__name__)
 ARTIFACT_THRESHOLD_MIN_UV = 0.0001
@@ -93,9 +101,8 @@ def _refresh_runtime_classifier_settings(classifier_cfg: dict | None) -> None:
     """
 
     cfg = classifier_cfg or {}
-
-    ver_classifier.refresh_classifier_cfg(cfg)
-    ver_peaks.refresh_classifier_cfg(cfg)
+    # Delegate to the VER analysis engine adapter; swap for ECG equivalent when ready.
+    _refresh_analysis_engine_cfg(cfg)
 
 
 def _clamp_artifact_threshold(threshold_uv: float) -> float:
@@ -1499,7 +1506,7 @@ class VERMainWindow(QMainWindow):
         artifact_rejection_enabled: bool | None = None,
         artifact_exclusion_threshold: float | None = None,
     ):
-        power, freqs = compute_wavelet_scalogram(session_avg)
+        power, freqs = compute_wavelet_scalogram(session_avg)  # generic — keep for ECG
         self.session_wavelets.append(power)
         self.session_wavelet_freqs = freqs
         peak_idx = np.unravel_index(np.argmax(power), power.shape)
@@ -1507,6 +1514,9 @@ class VERMainWindow(QMainWindow):
         peak_latency_ms = float(self.scope.epoch_time_ms[peak_idx[1]])
         peak_power = float(power[peak_idx])
 
+        # --- VER analysis engine call site (transitional) ---
+        # detect_ver_peaks comes from ver_analysis_engine.py (REPLACEMENT TARGET 2).
+        # Replace with detect_ecg_peaks() from ecg_peaks.py when ready.
         ver_peaks = detect_ver_peaks(session_avg, self.scope.epoch_time_ms)
         self.session_ver_peaks.append(ver_peaks)
         self.session_flash_counts.append(flash_count)
@@ -1597,6 +1607,9 @@ class VERMainWindow(QMainWindow):
         
         # ---------------------------------------------------------
         # PASS 1: Generate the Draft
+        # --- VER report engine call site (transitional) ---
+        # save_ver_report comes from ver_analysis_engine.py (REPLACEMENT TARGET 4).
+        # Replace with save_ecg_report() from ecg_report.py after scope + peaks + classifier.
         # ---------------------------------------------------------
         try:
             result = save_ver_report(

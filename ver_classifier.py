@@ -1,4 +1,32 @@
-"""Module for evaluating and classifying Visually Evoked Responses (VERs)."""
+"""VER-specific classifier — evaluates Visually Evoked Responses.
+
+INHERITED VER ANALYSIS ENGINE — REPLACEMENT TARGET 3
+=====================================================
+This module implements the VER pass/fail classifier and must be replaced
+together with ``ver_peaks.py`` when ECG classification is implemented.
+
+**VER-specific logic in this module:**
+- ``evaluate_ver_peak`` gates on VER-tuned thresholds: P2 latency window
+  (40–120 ms), inter-peak interval (20–85 ms), scale/power gates.  None
+  of these criteria apply to ECG morphology or rhythm classification.
+- Failure details (``P2 Latency``, ``Peak Structure``, etc.) are VER labels.
+
+**Callers (updated through ver_analysis_engine.py):**
+- ``ver_analysis_engine.py`` — re-exports ``evaluate_ver_peak``; update the
+  import there to switch all callers at once.
+- ``ver_report.py`` — calls ``evaluate_ver_peak`` directly; update in same PR.
+- ``ver_ml_logger.py`` — calls ``evaluate_ver_peak``; update in same PR.
+
+**ECG replacement (ecg_classifier.py) should expose:**
+- Rhythm classification (normal sinus, arrhythmia, etc.).
+- ECG interval validation (QRS duration, PR interval, QT interval).
+- Replace the ``is_ver`` / ``failure_details`` output schema with ECG labels.
+
+Replace this module as part of a coordinated trio: ``ver_peaks.py`` →
+``ver_classifier.py`` → ``ver_report.py`` / ``ver_ml_logger.py``.
+
+See ``docs/ecg-transition-priorities.md § Rank 3`` and ``TRANSITION.md``.
+"""
 
 import logging
 from typing import Tuple, Dict, Optional
