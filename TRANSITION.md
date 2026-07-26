@@ -4,6 +4,10 @@ This document records the first-pass transition assessment performed after
 copying the [VER-analyses](https://github.com/MichaelLandvetter/VER-analyses)
 codebase into this ECG-oriented repository.
 
+> **See also:** [`docs/ecg-transition-priorities.md`](docs/ecg-transition-priorities.md)
+> for the full ranked replacement list, safe sequencing roadmap, and
+> architectural risk analysis produced in the second planning pass.
+
 ---
 
 ## Module-by-module classification
