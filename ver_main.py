@@ -114,7 +114,7 @@ def prompt_analysis_complete_action(parent) -> str:
         "Back to Analysis keeps the current results so you can adjust filter or classifier "
         "settings and rerun the analysis."
     )
-    proceed_button = dialog.addButton("Proceed to Human Validation", QMessageBox.ButtonRole.YesRole)
+    proceed_button = dialog.addButton("Proceed to Manual Review", QMessageBox.ButtonRole.YesRole)
     back_button = dialog.addButton("Back to Analysis", QMessageBox.ButtonRole.NoRole)
     dialog.setDefaultButton(proceed_button)
     dialog.exec()
@@ -558,16 +558,16 @@ class ClassifierSettingsTab(QWidget):
                 ("min_power", "Minimum energy (power) threshold for detection", "Minimum energy threshold for detection", 9)
             ]),
             ("Timing Windows", [
-                ("p2_min_latency", "Earliest allowed P2 peak (ms)", "Earliest allowed P2 peak", 1),
-                ("p2_max_latency", "Latest allowed P2 peak (ms)", "Latest allowed P2 peak", 1)
+                ("p2_min_latency", "Earliest allowed Feature-2 peak (ms)", "Earliest allowed Feature-2 peak", 1),
+                ("p2_max_latency", "Latest allowed Feature-2 peak (ms)", "Latest allowed Feature-2 peak", 1)
             ]),
             ("Waveform Morphology", [
-                ("ipi_min", "Minimum distance between P1 and P2 (ms)", "Minimum distance between P1 and P2", 1),
-                ("ipi_max", "Maximum distance between P1 and P2 (ms)", "Maximum distance between P1 and P2", 1),
-                ("p3_p2_max", "Limit for P3-P2 separation (ms)", "Limit for P3-P2 separation", 1)
+                ("ipi_min", "Minimum distance between Feature-1 and Feature-2 (ms)", "Minimum distance between Feature-1 and Feature-2", 1),
+                ("ipi_max", "Maximum distance between Feature-1 and Feature-2 (ms)", "Maximum distance between Feature-1 and Feature-2", 1),
+                ("p3_p2_max", "Limit for Feature-3/Feature-2 separation (ms)", "Limit for Feature-3/Feature-2 separation", 1)
             ]),
-            ("Simpel peak classification used during the initial analyses", [
-                ("snr_threshold", "Signal-to-Noise Ratio for valid peak during the initial analyses", "Signal-to-Noise Ratio for valid peak", 1)
+            ("Signal quality threshold used during initial analysis", [
+                ("snr_threshold", "Signal-to-noise threshold for valid provisional peak", "Signal-to-noise threshold for provisional peak", 1)
             ])
         ]
 
@@ -601,7 +601,7 @@ class ClassifierSettingsTab(QWidget):
             group_box.setLayout(group_layout)
             main_layout.addWidget(group_box)
 
-        peak_mode_box = QGroupBox("Peak detection used for initial peak picks")
+        peak_mode_box = QGroupBox("Detection mode used for initial feature picks")
         peak_mode_layout = QFormLayout()
         for value, label in PEAK_DETECTION_MODE_OPTIONS.items():
             self.peak_detection_mode_combo.addItem(label, value)
@@ -609,14 +609,14 @@ class ClassifierSettingsTab(QWidget):
         selected_index = self.peak_detection_mode_combo.findData(selected_mode)
         self.peak_detection_mode_combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
         self.peak_detection_mode_combo.setToolTip(
-            "Controls how Peak-1/2/3 are seeded before human validation."
+            "Controls how Feature-1/2/3 are seeded before manual review."
         )
         peak_mode_layout.addRow(QLabel("Mode"), self.peak_detection_mode_combo)
         peak_mode_box.setLayout(peak_mode_layout)
         main_layout.addWidget(peak_mode_box)
 
         # 3. Save Button
-        save_btn = QPushButton("Save Classifier Settings")
+        save_btn = QPushButton("Save Detection Settings")
         save_btn.clicked.connect(self.save_settings)
         main_layout.addWidget(save_btn)
         main_layout.addStretch()
@@ -639,7 +639,7 @@ class ClassifierSettingsTab(QWidget):
         QMessageBox.information(
             self,
             "Settings Saved",
-            "Classifier settings saved.\n\nChanges are queued for the next time you click Start. The current graph stays unchanged until then."
+            "Detection settings saved.\n\nChanges are queued for the next time you click Start. The current graph stays unchanged until then."
         )
 
 class VERMainWindow(QMainWindow):
@@ -864,13 +864,13 @@ class VERMainWindow(QMainWindow):
         layout3 = QFormLayout() 
         layout3.addRow("Low cut (Hz):", self.low_spin)
         layout3.addRow("High cut (Hz):", self.high_spin)
-        layout3.addRow("Scope Filter:", self.scope_filter_combo) 
+        layout3.addRow("Scope/Analysis Filter:", self.scope_filter_combo) 
         layout3.addRow(apply_filter_btn)
         group3.setLayout(layout3)
         top_bar.addWidget(group3)
         
         # 4. SPEED AND SCOPE VIEW GROUP (Moved from 5 to 4)
-        group4 = QGroupBox("4. Speed and Scope")
+        group4 = QGroupBox("4. Speed and Analysis Scope")
         layout4 = QFormLayout() 
         layout4.addRow("Speed:", self.speed_combo)
         layout4.addRow("Triggers/Avg:", self.flash_spin)
@@ -980,7 +980,7 @@ class VERMainWindow(QMainWindow):
         
         # -- 4. ADD THE NEW CLASSIFIER TAB (This creates the 3rd Tab) --
         self.classifier_tab = ClassifierSettingsTab(self.settings_manager)
-        self.tabs.addTab(self.classifier_tab, "Transitional Classifier Settings")
+        self.tabs.addTab(self.classifier_tab, "Signal Classifier Settings (Transitional)")
         
         self.setCentralWidget(central)
         
@@ -1592,7 +1592,7 @@ class VERMainWindow(QMainWindow):
         # --- NEW: Show loading screen for Pass 1 ---
         load_ui = self.show_loading_screen(
             "Processing...", 
-            "Generating draft report and preparing Machine Learning module.\nThis may take a few moments..."
+            "Generating draft report and preparing the review module.\nThis may take a few moments..."
         )
         
         # ---------------------------------------------------------
@@ -1624,7 +1624,7 @@ class VERMainWindow(QMainWindow):
 
         if result is None:
             load_ui.accept() # Close loading box on error
-            QMessageBox.information(self, "No data", "No completed minutes available yet.")
+            QMessageBox.information(self, "No data", "No completed analysis blocks available yet.")
             return
             
         # Extract the directory so we can force the overwrite later
@@ -1655,7 +1655,7 @@ class VERMainWindow(QMainWindow):
                 # --- NEW: Show loading screen for Pass 2 ---
                 save_ui = self.show_loading_screen(
                     "Saving Data...", 
-                    "Applying your validations and rendering the final PDF reports.\nPlease wait..."
+                    "Applying your review decisions and rendering the final PDF reports.\nPlease wait..."
                 )
                 
                 original_stem = Path(result["png"]).stem 
@@ -1715,7 +1715,7 @@ class VERMainWindow(QMainWindow):
         # The user only sees this AFTER they are completely done!
         QMessageBox.information(
             self,
-            "Report Finalized",
+            "Analysis Report Finalized",
             f"Reports generated, validated, and saved to:\n{report_dir_str}\n\n"
             f"PNG: {png_name}\n"
             f"PDF: {pdf_name}\n"

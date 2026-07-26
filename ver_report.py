@@ -402,9 +402,9 @@ def _build_figures_page(
     ax1.set_ylabel("Amplitude (µV)")
     ax1.legend(
         handles=[
-            Line2D([0], [0], marker='D', color="blue", linestyle="None", markersize=6, label="Peak-1"),
-            Line2D([0], [0], marker='D', color="red", linestyle="None", markersize=6, label="Peak-2"),
-            Line2D([0], [0], marker='D', color="green", linestyle="None", markersize=6, label="Peak-3"),
+            Line2D([0], [0], marker='D', color="blue", linestyle="None", markersize=6, label="Feature-1"),
+            Line2D([0], [0], marker='D', color="red", linestyle="None", markersize=6, label="Feature-2"),
+            Line2D([0], [0], marker='D', color="green", linestyle="None", markersize=6, label="Feature-3"),
         ],
         loc="upper right",
         fontsize=8,
@@ -488,10 +488,10 @@ def _build_stats_table_page(
     
     # 1. PRE-POPULATE ROWS FIRST (So we can calculate height correctly)
     col_labels = [
-        "Block", "Label", "Response Detected?", "Reason",
-        "Peak-1 Latency (ms)", "Peak-1 Amp",
-        "Peak-2 Latency (ms)", "Peak-2 Amp",
-        "Peak-3 Latency (ms)", "Peak-3 Amp",
+        "Block", "Decision", "Response Detected?", "Reason",
+        "Feature-1 Latency (ms)", "Feature-1 Amp",
+        "Feature-2 Latency (ms)", "Feature-2 Amp",
+        "Feature-3 Latency (ms)", "Feature-3 Amp",
         "Peak Scale", "Peak Latency (ms)", "Peak Power",
     ]
     rows = []
