@@ -57,6 +57,11 @@
 
 ### Rank 1 — `ver_scope.py` → `ecg_scope.py`
 
+**Current transition status:** A minimal ECG placeholder boundary now exists in
+`ecg_scope.py` (`ECGScopeProcessor`), and direct caller imports in
+`ver_main.py`/`ver_preflight.py` route through that interface while inherited
+`ver_scope.py` behavior remains underneath temporarily.
+
 **Why early:**
 The scope processor is the epoch trigger model for the entire application.
 Every upstream signal sample and every downstream averaged waveform passes
@@ -86,6 +91,9 @@ shared boundary.
 **User-facing improvement:**
 Real ECG epochs (beat-locked windows) instead of flash-triggered averages.
 The application becomes usable with actual ECG recordings.
+
+**Next target after this boundary PR:**
+`ver_peaks.py` (Rank 2), then coordinated `ver_classifier.py` replacement.
 
 ---
 

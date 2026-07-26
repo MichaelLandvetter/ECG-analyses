@@ -9,7 +9,7 @@ import numpy as np
 from ver_acquisition import FileAcquisitionSimulator
 from ver_config import FILE_CONFIG, FILTER_CONFIG
 from ver_filter import BandpassFilter
-from ver_scope import VERScopeProcessor
+from ecg_scope import ECGScopeProcessor
 
 MAD_TO_SIGMA = 1.4826  # Converts MAD to std-dev equivalent assuming normal distribution.
 ROBUST_SIGMA_MULTIPLIER = 3.0
@@ -125,7 +125,7 @@ def suggest_exclusion_from_file(
         }
     )
 
-    scope = VERScopeProcessor(scope_filter, epoch_config=epoch_config)
+    scope = ECGScopeProcessor(scope_filter, epoch_config=epoch_config)
     simulator = FileAcquisitionSimulator(file_path, speed_factor=None, file_config=active_file_config)
     epoch_peak_abs: list[float] = []
     display_signal: list[float] = []

@@ -132,6 +132,39 @@ replaceability, without changing any analysis logic or scientific behavior:
 
 ---
 
+## What was changed in the fourth pass (first module placeholder boundary PR)
+
+This pass performs a **single-module transition boundary** for the highest
+priority inherited module:
+
+1. **Chosen first replacement target: `ver_scope.py`**
+   - strongest domain mismatch (flash-locked trigger model vs ECG beats)
+   - highest user-facing confusion if left direct (scope/epochs drive all
+     downstream analysis)
+   - safest first boundary because only `ver_main.py` and `ver_preflight.py`
+     imported it directly
+
+2. **`ecg_scope.py` created (NEW)** — ECG-oriented placeholder interface
+   exposing `ECGScopeProcessor`, currently delegating to inherited
+   `VERScopeProcessor` to keep behavior stable and app runnable.
+
+3. **Callers switched to ECG boundary** — `ver_main.py` and `ver_preflight.py`
+   now import `ECGScopeProcessor` from `ecg_scope.py`, reducing direct caller
+   coupling to `ver_scope.py`.
+
+4. **Inherited behavior intentionally retained behind the boundary**
+   - trigger model, flash-count sessions, and epoch extraction still come from
+     `ver_scope.py` for now
+   - future ECG implementation should replace delegation inside `ecg_scope.py`
+     with beat-locked ECG logic while preserving (or explicitly migrating)
+     the current result-dict contract
+
+**Recommended next replacement target after this pass:**
+`ver_peaks.py` (via `ver_analysis_engine.py`), followed by coordinated
+classifier/report schema updates.
+
+---
+
 ## What was intentionally left unchanged
 
 - All module file names (`ver_*.py`) — renaming would break all imports and is

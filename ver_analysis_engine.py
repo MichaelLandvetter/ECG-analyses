@@ -18,11 +18,11 @@ components.  All VER-specific analysis functions exported here are
 
 **NOT managed here (handled separately):**
 
-- ``VERScopeProcessor`` (``ver_scope.py``) — the trigger/epoch/averaging
-  processor.  It is the *first* component to replace (REPLACEMENT TARGET 1
-  → ``ecg_scope.py``).  Both ``ver_main.py`` and ``ver_preflight.py`` import
-  it directly; update those call sites when replacing the scope processor.
-  See the architectural risk note in ``docs/ecg-transition-priorities.md``.
+- ``ECGScopeProcessor`` (``ecg_scope.py``) — ECG-oriented placeholder
+  boundary for trigger/epoch/averaging.  It is currently backed by inherited
+  ``VERScopeProcessor`` logic from ``ver_scope.py`` and is the first module
+  transition boundary (REPLACEMENT TARGET 1).  See
+  ``docs/ecg-transition-priorities.md`` for sequencing/risk notes.
 
 **How to apply ECG modules via this boundary:**
 
