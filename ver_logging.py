@@ -1,4 +1,4 @@
-"""Centralised logging configuration for the VER analysis application.
+"""Centralised logging configuration for the ECG analysis application.
 
 Writes structured log entries to a rotating file in a user-writable location
 so that EXE users have a usable audit trail without cluttering the console.
@@ -15,7 +15,7 @@ the standard ``logging`` module anywhere in the application::
 
 The log file location is resolved in this priority order:
 1. ``logs/`` subdirectory next to the running EXE / script  (writable check).
-2. ``~/.ver_analyses/logs/``  (user home folder fallback).
+2. ``~/.ecg_analyses/logs/``  (user home folder fallback).
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def _resolve_log_dir() -> Path:
         pass
 
     # Fallback: user home directory.
-    fallback = Path.home() / ".ver_analyses" / "logs"
+    fallback = Path.home() / ".ecg_analyses" / "logs"
     fallback.mkdir(parents=True, exist_ok=True)
     return fallback
 

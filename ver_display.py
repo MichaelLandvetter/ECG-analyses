@@ -1,4 +1,9 @@
-"""PyQtGraph display components for live VER visualization."""
+"""PyQtGraph display components for live signal visualization.
+
+NOTE (transition): Class name ``VERDisplayWidget`` and some plot titles
+are inherited from the VER-analyses codebase.  They will be updated when
+the analysis modules are replaced.  See TRANSITION.md.
+"""
 
 from __future__ import annotations
 
@@ -89,7 +94,7 @@ class VERDisplayWidget(QWidget):
         self.plot_sessions.showGrid(x=True, y=False, alpha=0.3)
         self.plot_sessions.setLabel("bottom", "Time", "ms")
         #self.plot_sessions.setLabel("left", "Minute")
-        self.plot_sessions.setTitle("VER Evolution")
+        self.plot_sessions.setTitle("Signal Evolution")
         self.plot_sessions.setXRange(-200, 400, padding=0)
         self.plot_sessions.enableAutoRange('y', True)
         self.plot_sessions.getAxis("left").setTicks([[]])
@@ -99,7 +104,7 @@ class VERDisplayWidget(QWidget):
         self._sessions_y_max = None
 
     def _init_panels(self):
-        self.plot_sessions = self.graphics.addPlot(row=0, col=0, rowspan=3, title="VER Evolution")
+        self.plot_sessions = self.graphics.addPlot(row=0, col=0, rowspan=3, title="Signal Evolution")
         self.plot_sessions.getViewBox().setMouseEnabled(x=False, y=True)
         self._reset_sessions_panel()
 
@@ -375,7 +380,7 @@ class VERDisplayWidget(QWidget):
                     )
                     self.plot_sessions.addItem(scatter)
             if not ver_peaks.get("VER_detected", False):
-                no_ver_text = pg.TextItem("No VER", color="#888888", anchor=(0.0, 0.5))
+                no_ver_text = pg.TextItem("No response", color="#888888", anchor=(0.0, 0.5))
                 no_ver_text.setPos(5.0, offset)
                 self.plot_sessions.addItem(no_ver_text)
         text = pg.TextItem(label_text, color=color, anchor=(1, 0.5))
