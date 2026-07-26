@@ -805,7 +805,7 @@ class VERMainWindow(QMainWindow):
         self.flash_spin = QSpinBox()
         self.flash_spin.setRange(5, 500)
         self.flash_spin.setValue(EPOCH_CONFIG["flashes_per_session"])
-        self.flash_spin.setToolTip("Flashes per average block")
+        self.flash_spin.setToolTip("Number of trigger events per averaging block")
         self.flash_spin.valueChanged.connect(self._on_flash_count_changed)
 
         # --- Input Source Widgets ---
@@ -873,7 +873,7 @@ class VERMainWindow(QMainWindow):
         group4 = QGroupBox("4. Speed and Scope")
         layout4 = QFormLayout() 
         layout4.addRow("Speed:", self.speed_combo)
-        layout4.addRow("Flashes/Avg:", self.flash_spin)
+        layout4.addRow("Triggers/Avg:", self.flash_spin)
         group4.setLayout(layout4)
         top_bar.addWidget(group4)
 
@@ -899,7 +899,9 @@ class VERMainWindow(QMainWindow):
 
         # --- PROGRESS LABEL ---
         seconds = int(EPOCH_CONFIG['flashes_per_session'] / 2.0)
-        self.progress_label = QLabel(f"Block 1/{EPOCH_CONFIG['num_sessions']} ({seconds}s) | Flash 0/{EPOCH_CONFIG['flashes_per_session']}")
+        self.progress_label = QLabel(
+            f"Block 1/{EPOCH_CONFIG['num_sessions']} ({seconds}s) | Trigger 0/{EPOCH_CONFIG['flashes_per_session']}"
+        )
         self.progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.progress_label.setStyleSheet("font-weight: bold; margin-top: 5px; margin-bottom: 5px;")
         root.addWidget(self.progress_label)
@@ -961,8 +963,8 @@ class VERMainWindow(QMainWindow):
 
         # -- Add to Layout --
         settings_layout.addRow(QLabel("<b>Epoch Window</b>"))
-        settings_layout.addRow("Pre-Stimulus Time (ms):", self.set_pre_stim)
-        settings_layout.addRow("Post-Stimulus Time (ms):", self.set_post_stim)
+        settings_layout.addRow("Pre-trigger Time (ms):", self.set_pre_stim)
+        settings_layout.addRow("Post-trigger Time (ms):", self.set_post_stim)
         settings_layout.addRow("Enable artifact rejection:", self.set_artifact_enabled)
         settings_layout.addRow("Exclusion threshold (±):", self.set_artifact_threshold)
         settings_layout.addRow(QLabel("<b>Wavelet Tuning</b>"))
@@ -978,7 +980,7 @@ class VERMainWindow(QMainWindow):
         
         # -- 4. ADD THE NEW CLASSIFIER TAB (This creates the 3rd Tab) --
         self.classifier_tab = ClassifierSettingsTab(self.settings_manager)
-        self.tabs.addTab(self.classifier_tab, "VER Classifier Settings")
+        self.tabs.addTab(self.classifier_tab, "Transitional Classifier Settings")
         
         self.setCentralWidget(central)
         
@@ -1442,9 +1444,9 @@ class VERMainWindow(QMainWindow):
         flash_total = EPOCH_CONFIG['flashes_per_session']
         if flash_count_accepted is not None:
             rejected = flash_count - flash_count_accepted
-            flash_text = f"Flash {flash_count}/{flash_total} | Accepted {flash_count_accepted} | Rejected {rejected}"
+            flash_text = f"Trigger {flash_count}/{flash_total} | Accepted {flash_count_accepted} | Rejected {rejected}"
         else:
-            flash_text = f"Flash {flash_count}/{flash_total}"
+            flash_text = f"Trigger {flash_count}/{flash_total}"
         self.progress_label.setText(
             f"Block {session_number}/{EPOCH_CONFIG['num_sessions']} ({seconds_per_block}s) | {flash_text}"
         )

@@ -91,7 +91,7 @@ class WaveletAnalyzerGUI(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Live EEG & Trigger View")
+        self.setWindowTitle("Live Signal & Trigger View")
         self.resize(800, 500) 
 
         self.worker = None 
@@ -144,9 +144,9 @@ class WaveletAnalyzerGUI(QtWidgets.QMainWindow):
         self.layout_canvas = pg.GraphicsLayoutWidget()
         main_layout.addWidget(self.layout_canvas)
 
-        # Row 1: Raw EEG Plot
-        self.p_eeg = self.layout_canvas.addPlot(row=0, col=0, title="EEG Signal")
-        self.curve_eeg = self.p_eeg.plot(pen='w', name="EEG")
+        # Row 1: Raw signal plot
+        self.p_eeg = self.layout_canvas.addPlot(row=0, col=0, title="Signal")
+        self.curve_eeg = self.p_eeg.plot(pen='w', name="Signal")
         self.p_eeg.setLabel('left', 'Amplitude (µV)')
         
         # Row 2: Trigger Plot

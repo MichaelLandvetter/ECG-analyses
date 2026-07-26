@@ -29,7 +29,7 @@ _HUMAN_REASON_DEFAULTS = ["", "Confirmed", "Noise", "Artifact", "Unclear", "Othe
 class HumanValidationDialog(QDialog):
     def __init__(self, block_data, png_path=None, parent=None, filename="", species=""):
         super().__init__(parent)
-        self.setWindowTitle("Machine Learning - Human Validation")
+        self.setWindowTitle("Transitional Analysis - Human Validation")
         self.resize(1400, 780)
         self.block_data = block_data
         self.filename = filename
@@ -98,7 +98,7 @@ class HumanValidationDialog(QDialog):
         self.table.setHorizontalHeaderLabels([
             "Block", "Peak Power", "Scale (Hz)", "P1 Latency", "P2 Latency",
             "P3 Latency", "SNR", "Computer Label", "Computer Reason",
-            "Human Validation", "Human Reason", "Review Confidence",
+            "Human Review", "Human Reason", "Review Confidence",
         ])
         self.table.setRowCount(len(block_data))
         self.combos = []        # Human Validation (col 9)
@@ -114,13 +114,13 @@ class HumanValidationDialog(QDialog):
             self.table.setItem(row_idx, 5, QTableWidgetItem(f"{data['p3_lat']:.1f}"))
             self.table.setItem(row_idx, 6, QTableWidgetItem(f"{data['snr']:.2f}"))
 
-            comp_lbl = "VER" if data['computer_label'] else "No VER"
+            comp_lbl = "Response" if data['computer_label'] else "No response"
             self.table.setItem(row_idx, 7, QTableWidgetItem(comp_lbl))
             self.table.setItem(row_idx, 8, QTableWidgetItem(data['reason']))
 
             # Col 9 — Human Validation: defaults to the computer label
             combo = QComboBox()
-            combo.addItems(["VER", "No VER"])
+            combo.addItems(["Response", "No response"])
             combo.setCurrentText(comp_lbl)
             self.table.setCellWidget(row_idx, 9, combo)
             self.combos.append(combo)
@@ -190,7 +190,7 @@ class HumanValidationDialog(QDialog):
         # opening the CSV, preventing any partial writes on failure.
         rows_to_write = []
         for i, data in enumerate(self.block_data):
-            is_ver = self.combos[i].currentText() == "VER"
+            is_ver = self.combos[i].currentText() == "Response"
             human_label = 1 if is_ver else 0
             comp_label = 1 if data['computer_label'] else 0
             human_reason = self.reason_combos[i].currentText().strip()

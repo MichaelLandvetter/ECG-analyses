@@ -32,7 +32,7 @@
 
 | Module | Lines | What needs refactoring | Risk |
 |--------|------:|------------------------|------|
-| `ver_main.py` | 1,770 | Class `VERMainWindow`, vars `session_ver_peaks`/`detect_ver_peaks`/`save_ver_report`, tab label "VER Classifier Settings" | **Central orchestrator** — refactor incrementally alongside each module replacement; never in isolation |
+| `ver_main.py` | 1,770 | Class `VERMainWindow`, vars `session_ver_peaks`/`detect_ver_peaks`/`save_ver_report`, plus inherited internal VER naming | **Central orchestrator** — refactor incrementally alongside each module replacement; never in isolation |
 | `ver_display.py` | 430 | Class `VERDisplayWidget`; one remaining `"No response"` string already updated | Rename class after the core logic replacements; structure is generic and reusable |
 | `ver_preflight.py` | 160 | Imports `VERScopeProcessor` — will track the scope replacement | Update import + interface call when `ver_scope.py` is replaced |
 
@@ -226,7 +226,7 @@ Step 5          Replace ver_report.py + ver_ml_logger.py
 Step 6          Config and UI cleanup
                 ├── Remove SPECIES fish list from ver_config.py
                 ├── Add ECG-relevant session metadata (lead, patient ID)
-                └── Rename "VER Classifier Settings" tab in ver_main.py
+                └── Revisit transitional classifier-tab wording in ver_main.py once the ECG classifier exists
 
 Step 7          Module rename pass  (defer until logic is stable)
                 ├── ver_*.py → ecg_*.py  (all modules in one coordinated commit)
