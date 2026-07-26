@@ -1,4 +1,42 @@
-"""Trigger detection, epoch extraction, and running/session averaging."""
+"""Trigger detection, epoch extraction, and running/session averaging.
+
+INHERITED VER ANALYSIS ENGINE — REPLACEMENT TARGET 1
+=====================================================
+This module is the first component to replace when implementing ECG analysis.
+The flash-locked epoch model here is fundamentally incompatible with ECG data.
+
+**VER-specific logic in this module:**
+- Rising-edge trigger detection (``process_sample``) — assumes an external
+  flash/stimulus trigger channel; ECG needs R-peak detection (e.g. Pan-Tompkins).
+- Flash-count-based session completion (``flashes_per_session``) — should be
+  replaced with beat-count or time-window-based block structure for ECG.
+- Pre/post-stimulus epoch window (``pre_stim_ms``, ``post_stim_ms``) — flash-
+  locked windows; ECG uses R-peak-locked PQRST windows instead.
+
+**Callers (must be updated together when this module is replaced):**
+- ``ver_main.py`` — instantiates ``VERScopeProcessor``, calls ``process_sample``
+  sample by sample, reads all keys from the result dict.
+- ``ver_preflight.py`` — whole-file pre-scan using ``VERScopeProcessor``.
+
+**Result-dict interface** (``process_sample`` return keys):
+  ``trigger_detected``, ``epoch_complete``, ``epoch_rejected``,
+  ``session_complete``, ``completed_epoch``, ``running_average``,
+  ``completed_session_average``, ``flash_count``, ``flash_count_accepted``,
+  ``session_index``, ``session_number``, ``completed_session_number``,
+  ``completed_session_flash_count``, ``completed_session_flash_count_accepted``,
+  ``artifact_rejection_enabled``, ``artifact_exclusion_threshold``
+
+Any ECG replacement (``ecg_scope.py``) must return the same keys — or update
+all read sites in ``ver_main.py`` in the same PR.  See the risk note in
+``docs/ecg-transition-priorities.md § Biggest architectural risk``.
+
+**Generic pieces worth keeping:**
+- Ring buffer (``pre_buffer``) — paradigm-agnostic; reuse for ECG.
+- Artifact rejection by amplitude threshold — reuse for ECG.
+- Bandpass-filtered epoch storage and running average — reuse for ECG.
+
+See ``docs/ecg-transition-priorities.md`` and ``TRANSITION.md`` for context.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +49,14 @@ from ver_config import ACQ_CONFIG, EPOCH_CONFIG
 
 
 class VERScopeProcessor:
-    """Manage ring buffer, rising-edge trigger detection, and averaging."""
+    """Ring-buffer trigger detection, epoch extraction, and session averaging.
+
+    Inherited VER analysis component — REPLACEMENT TARGET 1.
+    Replace with ``ECGScopeProcessor`` in ``ecg_scope.py`` implementing
+    R-peak detection (e.g. Pan-Tompkins) and beat-locked epoch windows.
+    Preserve the ``process_sample`` result-dict key names during replacement
+    to minimise changes to call sites in ``ver_main.py``.
+    """
 
     def __init__(self, bandpass_filter, epoch_config: Optional[dict] = None):
         self.bandpass_filter = bandpass_filter

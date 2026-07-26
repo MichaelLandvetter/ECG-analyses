@@ -76,6 +76,62 @@ ECG-oriented without breaking the inherited application:
 9. **`ver_USB_test.py`** — standalone diagnostic window updated from EEG-only
    wording to neutral signal/trigger wording.
 
+---
+
+## What was changed in the second pass (VER workflow placeholder PR)
+
+The following **minimal** changes replaced the most user-visible VER-specific
+workflow elements with ECG-oriented or neutral placeholders:
+
+- Tab names, graph titles, validation prompts, and progress text updated.
+- Classifier tab labelled `"Signal Classifier Settings (Transitional)"`.
+- Main analysis tab labelled `"Analysis View"` instead of VER-specific name.
+- Group labels use neutral signal/trigger wording.
+- See PR #2 for the full list of items changed and items intentionally left.
+
+---
+
+## What was changed in the third pass (VER analysis engine isolation PR)
+
+The following **minimal structural improvements** were made to isolate the
+inherited VER-specific analysis engine and improve module-by-module
+replaceability, without changing any analysis logic or scientific behavior:
+
+1. **`ver_analysis_engine.py` created (NEW)** — Thin adapter/facade module
+   that is now the **single import boundary** between generic application
+   orchestration and the inherited VER analysis functions.  It re-exports:
+   - `detect_ver_peaks` from `ver_peaks.py` (REPLACEMENT TARGET 2)
+   - `evaluate_ver_peak` from `ver_classifier.py` (REPLACEMENT TARGET 3)
+   - `save_ver_report` from `ver_report.py` (REPLACEMENT TARGET 4)
+   - `refresh_classifier_cfg` — propagates settings to both analysis modules
+   
+   **How to use this boundary for ECG replacement:**  implement the ECG
+   analysis modules, update the imports *inside `ver_analysis_engine.py`*,
+   and no other changes to `ver_main.py` are needed for those three modules.
+
+2. **`ver_main.py` imports regrouped** — The scattered VER analysis imports
+   (`import ver_classifier`, `import ver_peaks`, `from ver_peaks import …`,
+   `from ver_report import …`) are replaced by a single clearly-commented
+   import block from `ver_analysis_engine`.  A comment on `VERScopeProcessor`
+   marks it as REPLACEMENT TARGET 1.  Call sites in `_record_session` and
+   `save_report` are commented to identify them as VER engine call sites.
+
+3. **`ver_scope.py` docstring enhanced** — Module-level docstring now lists:
+   - all VER-specific logic (trigger model, flash-count sessions, epoch window)
+   - both callers that must be updated together during replacement
+   - the result-dict interface contract that must be preserved or updated
+   - generic pieces (ring buffer, artifact rejection, averaging) worth keeping
+
+4. **`ver_peaks.py` docstring enhanced** — Marks the module as REPLACEMENT
+   TARGET 2, lists VER-specific logic (P1/P2/P3 model, 0–200 ms window,
+   `VER_detected` flag), and specifies the ECG replacement output schema.
+
+5. **`ver_classifier.py` docstring enhanced** — Marks the module as
+   REPLACEMENT TARGET 3, lists VER-specific criteria (P2 latency gates,
+   inter-peak intervals), and notes the coordinated replacement trio.
+
+---
+
 ## What was intentionally left unchanged
 
 - All module file names (`ver_*.py`) — renaming would break all imports and is
