@@ -447,7 +447,7 @@ class ECGPreReportDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        source_label = QLabel(str(report_data.get("source_label", "Completed analysis")))
+        source_label = QLabel(report_data.get("source_label", "Completed analysis"))
         source_label.setStyleSheet("font-weight: bold;")
         layout.addWidget(source_label)
 
@@ -653,9 +653,12 @@ class VERMainWindow(QMainWindow):
         # Offline batch processor (whole-file / pre-report processing)
         self._ecg_offline = self._build_ecg_offline_processor()
 
-        # Legacy buffer retained for compatibility with inherited EOF code paths.
+        # Legacy buffer retained for compatibility with the inherited maximum-speed
+        # EOF path in _handle_eof (kept until that transitional branch is removed).
         self._max_speed_raw_buffer: list[float] = []
+        # Full raw USB session capture used to generate post-stop pre-report review.
         self._captured_serial_raw: list[float] = []
+        # Cached most-recent pre-report payload for reopening without recomputation.
         self._latest_pre_report_data: dict | None = None
 
         self._build_ui()
@@ -720,7 +723,7 @@ class VERMainWindow(QMainWindow):
         current_speed_text = self.speed_combo.currentText()
         is_running = self.worker is not None
         
-        if is_running and self.acquisition_source_mode == "File" and "Maximum" in current_speed_text:
+        if is_running and self._is_max_speed():
             # Set a fixed size for the warning box
             self.max_speed_warning.resize(400, 100)
             # Center it relative to the current window size
@@ -786,7 +789,7 @@ class VERMainWindow(QMainWindow):
         self.start_btn = QPushButton("Start")
         self.stop_btn = QPushButton("Stop  (Space)")
         self.reset_btn = QPushButton("Reset")
-        self.save_btn = QPushButton("Pre-report")
+        self.save_btn = QPushButton("Open Pre-report")
         self.start_btn.clicked.connect(self.start_acquisition)
         self.stop_btn.clicked.connect(self.stop_acquisition)
         self.reset_btn.clicked.connect(self.reset_all)
@@ -1024,7 +1027,7 @@ class VERMainWindow(QMainWindow):
 
     def _on_speed_changed(self, text: str):
         if self.worker is not None:
-            if self.acquisition_source_mode == "File" and "Maximum" in text:
+            if self._is_max_speed():
                 self.display.set_status("⚡ Maximum Speed: Live graphs paused.")
             else:
                 self.display.set_status("Running...")
