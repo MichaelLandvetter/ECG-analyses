@@ -95,6 +95,8 @@ from ecg_scope import ECGScopeProcessor  # REPLACEMENT BOUNDARY (transitional pl
 
 log = logging.getLogger(__name__)
 ARTIFACT_THRESHOLD_MIN_UV = 0.0001
+_PRE_REPORT_BEAT_PRE_S = 0.25
+_PRE_REPORT_BEAT_POST_S = 0.45
 # NOTE: PEAK_DETECTION_MODE_OPTIONS (VER-specific classifier peak mode labels)
 # removed along with ClassifierSettingsTab in the ECG cleanup PR.
 
@@ -527,10 +529,8 @@ class ECGPreReportDialog(QDialog):
             )
 
         # Beat overlays centered on R-peaks (practical first version).
-        pre_s = 0.25
-        post_s = 0.45
-        pre_n = int(round(pre_s * fs))
-        post_n = int(round(post_s * fs))
+        pre_n = int(round(_PRE_REPORT_BEAT_PRE_S * fs))
+        post_n = int(round(_PRE_REPORT_BEAT_POST_S * fs))
         beat_segments = []
         for idx in peak_idx.tolist():
             left = idx - pre_n
@@ -1393,7 +1393,7 @@ class VERMainWindow(QMainWindow):
         uses_low_high = self._filter_mode_uses_low_high(mode)
         low = float(self.low_spin.value())
         high = float(self.high_spin.value())
-        if uses_low_high and low >= high:
+        if low >= high:
             QMessageBox.warning(self, "Invalid filter", "Low cut must be less than high cut.")
             return
         # Update causal bandpass filter used for the scrolling display trace.
@@ -1423,6 +1423,12 @@ class VERMainWindow(QMainWindow):
 
     def _save_ecg_processing_settings(self) -> None:
         """Read values from the ECG Processing Settings tab and persist to JSON."""
+        low = float(self.low_spin.value())
+        high = float(self.high_spin.value())
+        if low >= high:
+            QMessageBox.warning(self, "Invalid filter", "Low cut must be less than high cut.")
+            return
+
         self._ecg_proc_cfg["detector_method"] = self.detector_combo.currentText()
         self._ecg_proc_cfg["rolling_window_s"] = float(self.rolling_window_spin.value())
         self._ecg_proc_cfg["detection_interval_s"] = float(self.det_interval_spin.value())
@@ -1430,8 +1436,8 @@ class VERMainWindow(QMainWindow):
         self._ecg_proc_cfg["notch_hz"] = float(self.notch_spin.value())
         # Also sync the filter settings from the top bar
         self._ecg_proc_cfg["filter_mode"] = self.filter_mode_combo.currentText()
-        self._ecg_proc_cfg["lowcut_hz"] = float(self.low_spin.value())
-        self._ecg_proc_cfg["highcut_hz"] = float(self.high_spin.value())
+        self._ecg_proc_cfg["lowcut_hz"] = low
+        self._ecg_proc_cfg["highcut_hz"] = high
 
         # Persist to JSON
         self.settings_manager.settings["ECG_PROCESSING_CONFIG"] = dict(self._ecg_proc_cfg)
@@ -1637,17 +1643,18 @@ class VERMainWindow(QMainWindow):
         with beat_path.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.writer(fh)
             writer.writerow(["beat_number", "r_peak_index", "r_peak_time_s", "rr_interval_s", "heart_rate_bpm"])
+            prev_idx = None
             for beat_no, idx in enumerate(peak_idx.tolist(), start=1):
                 t_s = idx / fs
-                if beat_no == 1:
+                if prev_idx is None:
                     rr_s = ""
                     bpm = ""
                 else:
-                    prev_idx = peak_idx[beat_no - 2]
                     rr = (idx - prev_idx) / fs
                     rr_s = f"{rr:.6f}"
                     bpm = f"{(60.0 / rr):.6f}" if rr > 0 else ""
                 writer.writerow([beat_no, idx, f"{t_s:.6f}", rr_s, bpm])
+                prev_idx = idx
 
         QMessageBox.information(
             self,
