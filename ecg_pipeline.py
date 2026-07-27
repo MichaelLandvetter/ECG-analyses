@@ -250,9 +250,18 @@ class ECGCleaningFilter:
         high = max(low + 1e-4, min(high, 0.9999))
         try:
             sos = butter(order, [low, high], btype="band", output="sos")
-            # padlen limited to signal length - 1 to avoid scipy error on short signals
-            padlen = min(3 * (2 * order + 1), signal.size - 1)
-            return sosfiltfilt(sos, signal - np.mean(signal), padlen=max(0, padlen))
+            # Minimum safe padlen for sosfiltfilt is 3 × filter-state length.
+            # If the signal is shorter than that minimum, skip zero-phase and
+            # fall back to a simple causal sosfilt to avoid edge artefacts.
+            min_padlen = 3 * (2 * order + 1)
+            centered = signal - np.mean(signal)
+            if signal.size <= min_padlen:
+                log.debug(
+                    "Butterworth zero-phase: signal too short (%d ≤ %d); using causal sosfilt.",
+                    signal.size, min_padlen,
+                )
+                return sosfilt(sos, centered)
+            return sosfiltfilt(sos, centered, padlen=min_padlen)
         except Exception as exc:
             log.warning("Butterworth zero-phase filter failed (%s); returning input.", exc)
             return signal.copy()
@@ -266,8 +275,14 @@ class ECGCleaningFilter:
     ) -> np.ndarray:
         try:
             b, a = iirnotch(notch_hz / (sample_rate / 2.0), q)
-            padlen = min(3 * max(len(b), len(a)), signal.size - 1)
-            return filtfilt(b, a, signal, padlen=max(0, padlen))
+            min_padlen = 3 * max(len(b), len(a))
+            if signal.size <= min_padlen:
+                log.debug(
+                    "Notch filter: signal too short (%d ≤ %d); skipping notch.",
+                    signal.size, min_padlen,
+                )
+                return signal.copy()
+            return filtfilt(b, a, signal, padlen=min_padlen)
         except Exception as exc:
             log.warning("Notch filter failed (%s); skipping notch step.", exc)
             return signal.copy()
@@ -335,7 +350,10 @@ class ECGRPeakDetector:
                 peaks = peaks[(peaks >= 0) & (peaks < cleaned_signal.size)]
                 return np.sort(peaks)
             except Exception as exc:
-                log.warning("nk.ecg_peaks failed (method=%r, %s); using fallback.", method, exc)
+                # Log at DEBUG for short signals (expected NK2 limitation);
+                # at WARNING only for full-length signals where NK2 should succeed.
+                _log_fn = log.debug if cleaned_signal.size < int(self.sample_rate) * 2 else log.warning
+                _log_fn("nk.ecg_peaks failed (method=%r, %s); using SciPy fallback.", method, exc)
 
         return self._scipy_fallback(cleaned_signal)
 
@@ -489,9 +507,13 @@ class ECGRollingProcessor:
         self._last_reported_idx = confirmed[-1]
         self._all_peak_global.extend(confirmed)
 
-        # Compute HR for the new peaks (also using previous peaks for the first RR)
+        # Compute HR for the new peaks, including one predecessor peak when
+        # available so the first RR interval can be computed.
+        # Use max(0, ...) to avoid a negative start index when confirmed is the
+        # very first batch of peaks (no predecessor exists yet).
+        start_idx = max(0, len(self._all_peak_global) - len(confirmed) - 1)
         hr_times, hr_bpm = _peaks_to_hr(
-            self._all_peak_global[-len(confirmed) - 1:],  # include one predecessor
+            self._all_peak_global[start_idx:],
             self.sample_rate,
         )
 

@@ -81,35 +81,35 @@ ECG_FILE_CONFIG: dict = {
 # ---------------------------------------------------------------------------
 # These defaults populate the ECG Processing Settings tab and are persisted
 # to user_settings.json under the key "ECG_PROCESSING_CONFIG".
-# Import ecg_pipeline constants here to avoid circular imports.
-
-from ecg_pipeline import (  # noqa: E402  (import after dict literals is intentional)
-    ECG_FILTER_DEFAULT,
-    ECG_DETECTOR_DEFAULT,
-)
+#
+# String constants are defined here directly (not imported from ecg_pipeline)
+# to avoid a circular-import dependency:  ecg_config → ecg_pipeline → ecg_config.
+# The canonical constant names live in ecg_pipeline; these are the matching values.
 
 ECG_PROCESSING_CONFIG: dict = {
     # --- Filter ---
-    "filter_mode": ECG_FILTER_DEFAULT,          # selected filter strategy string key
-    "lowcut_hz": 0.5,                            # bandpass lower corner (Hz)
-    "highcut_hz": 40.0,                          # bandpass upper corner (Hz)
-    "filter_order": 4,                           # IIR filter order
-    "notch_hz": 50.0,                            # power-line notch frequency (50 or 60 Hz)
+    "filter_mode": "Butterworth bandpass",   # ECG_FILTER_DEFAULT from ecg_pipeline
+    "lowcut_hz": 0.5,                        # bandpass lower corner (Hz)
+    "highcut_hz": 40.0,                      # bandpass upper corner (Hz)
+    "filter_order": 4,                       # IIR filter order
+    "notch_hz": 50.0,                        # power-line notch frequency (50 or 60 Hz)
 
     # --- R-peak detection ---
-    "detector_method": ECG_DETECTOR_DEFAULT,     # NeuroKit2 / fallback method string key
+    "detector_method": "neurokit",           # ECG_DETECTOR_DEFAULT from ecg_pipeline
 
     # --- Rolling-window parameters (streaming / real-time) ---
-    "rolling_window_s": 5.0,                     # rolling buffer length (seconds)
-    "detection_interval_s": 0.2,                 # how often to run detection (seconds)
-    "boundary_guard_s": 0.5,                     # right-edge hold-back guard (seconds)
+    "rolling_window_s": 5.0,                 # rolling buffer length (seconds)
+    "detection_interval_s": 0.2,             # how often to run detection (seconds)
+    "boundary_guard_s": 0.5,                 # right-edge hold-back guard (seconds)
 }
 
 # Apply any saved user overrides from user_settings.json
+import logging as _logging
+_log = _logging.getLogger(__name__)
 try:
     from ver_settings import SettingsManager as _SM
     _saved = _SM().load_settings()
     if "ECG_PROCESSING_CONFIG" in _saved:
         ECG_PROCESSING_CONFIG.update(_saved["ECG_PROCESSING_CONFIG"])
-except Exception:
-    pass
+except Exception as _exc:
+    _log.debug("Could not apply ECG_PROCESSING_CONFIG overrides from JSON: %s", _exc)

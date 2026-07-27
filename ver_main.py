@@ -633,10 +633,11 @@ class VERMainWindow(QMainWindow):
         # --- Filter Widgets (ECG bandpass only) ---
         self.low_spin = QSpinBox()
         self.low_spin.setRange(1, 120)
-        self.low_spin.setValue(int(self._ecg_proc_cfg.get("lowcut_hz", FILTER_CONFIG["lowcut_hz"])))
+        # _ecg_proc_cfg is pre-populated with defaults from ECG_PROCESSING_CONFIG
+        self.low_spin.setValue(int(self._ecg_proc_cfg["lowcut_hz"]))
         self.high_spin = QSpinBox()
         self.high_spin.setRange(2, 124)
-        self.high_spin.setValue(int(self._ecg_proc_cfg.get("highcut_hz", FILTER_CONFIG["highcut_hz"])))
+        self.high_spin.setValue(int(self._ecg_proc_cfg["highcut_hz"]))
 
         # Filter mode dropdown — selects the cleaning strategy for peak detection
         self.filter_mode_combo = QComboBox()
