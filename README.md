@@ -10,9 +10,12 @@
 
 The application provides a modular signal-analysis workbench with:
 
-- **File replay** — load text/CSV recordings and replay them sample-by-sample
+- **File analysis (offline-first)** — load ECG text files, compute full-file analysis,
+  then review complete-duration results in a pre-report window
 - **Live USB acquisition** — stream data from a serial microcontroller in real time
 - **Bandpass filtering** — configurable Butterworth / FIR / Savitzky-Golay filter
+- **Pre-report workflow** — full ECG/HR plots + individual beats/mean beat with
+  Back to Analysis and Save Reports actions
 - **Trigger-locked epoch averaging** — detect trigger events and average aligned
   windows (currently tuned to the VER paradigm; ECG trigger logic TBD)
 - **Wavelet scalogram** — continuous Morlet wavelet transform visualisation

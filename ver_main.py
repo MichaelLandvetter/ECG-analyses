@@ -10,6 +10,7 @@ ECG-specific implementations.  See TRANSITION.md for the full roadmap.
 from __future__ import annotations
 
 import logging
+import csv
 import shutil
 import sys
 import time
@@ -56,9 +57,9 @@ from ecg_pipeline import (
     ECGOfflineProcessor,
     ECG_FILTER_MODES,
     ECG_FILTER_DEFAULT,
+    ECG_FILTER_NEUROKIT2,
     ECG_DETECTOR_METHODS,
     ECG_DETECTOR_DEFAULT,
-    ECG_FILTER_BUTTERWORTH,
 )
 from ecg_config import ECG_PROCESSING_CONFIG
 
@@ -432,6 +433,131 @@ class ExclusionTuningDialog(QDialog):
         return float(self.threshold_spin.value())
 
 
+class ECGPreReportDialog(QDialog):
+    """Dedicated pre-report review dialog for completed ECG analyses."""
+
+    def __init__(self, report_data: dict, save_callback, parent=None):
+        super().__init__(parent)
+        self._report_data = report_data
+        self._save_callback = save_callback
+        self.setWindowTitle("ECG Pre-report Review")
+        self.resize(1200, 900)
+
+        layout = QVBoxLayout(self)
+
+        source_label = QLabel(str(report_data.get("source_label", "Completed analysis")))
+        source_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(source_label)
+
+        # --- Full ECG panel (raw + filtered + optional R-peaks) ---
+        self.plot_ecg = pg.PlotWidget(title="Full ECG — raw + filtered + R-peaks")
+        self.plot_ecg.showGrid(x=True, y=True, alpha=0.3)
+        self.plot_ecg.setLabel("bottom", "Time", "s")
+        self.plot_ecg.setLabel("left", "Amplitude")
+        self.plot_ecg.getViewBox().setMouseEnabled(x=True, y=True)
+        layout.addWidget(self.plot_ecg, stretch=2)
+
+        # --- Heart-rate panel ---
+        self.plot_hr = pg.PlotWidget(title="Heart Rate (full duration)")
+        self.plot_hr.showGrid(x=True, y=True, alpha=0.3)
+        self.plot_hr.setLabel("bottom", "Time", "s")
+        self.plot_hr.setLabel("left", "Heart Rate", "bpm")
+        self.plot_hr.getViewBox().setMouseEnabled(x=True, y=True)
+        layout.addWidget(self.plot_hr, stretch=1)
+
+        # --- Individual beats panel ---
+        self.plot_beats = pg.PlotWidget(title="Individual beats + average beat")
+        self.plot_beats.showGrid(x=True, y=True, alpha=0.3)
+        self.plot_beats.setLabel("bottom", "Time around R-peak", "ms")
+        self.plot_beats.setLabel("left", "Amplitude")
+        self.plot_beats.getViewBox().setMouseEnabled(x=True, y=True)
+        layout.addWidget(self.plot_beats, stretch=1)
+
+        self._beats_info_label = QLabel("")
+        layout.addWidget(self._beats_info_label)
+
+        button_row = QHBoxLayout()
+        self.back_btn = QPushButton("Back to Analysis")
+        self.save_btn = QPushButton("Save Reports")
+        self.back_btn.clicked.connect(self.reject)
+        self.save_btn.clicked.connect(self._save_reports)
+        button_row.addWidget(self.back_btn)
+        button_row.addWidget(self.save_btn)
+        button_row.addStretch()
+        layout.addLayout(button_row)
+
+        self._populate_plots()
+
+    def _populate_plots(self) -> None:
+        fs = float(self._report_data["sample_rate"])
+        raw = np.asarray(self._report_data["raw_signal"], dtype=float)
+        filt = np.asarray(self._report_data["filtered_signal"], dtype=float)
+        if raw.size == 0:
+            self._beats_info_label.setText("No signal data available.")
+            return
+
+        t = np.arange(raw.size, dtype=float) / fs
+        self.plot_ecg.plot(t, raw, pen=pg.mkPen((150, 150, 150), width=1), name="Raw")
+        self.plot_ecg.plot(t, filt, pen=pg.mkPen((0, 220, 120), width=1.5), name="Filtered")
+
+        peak_idx = np.asarray(self._report_data["r_peak_indices"], dtype=int)
+        if peak_idx.size:
+            peak_idx = peak_idx[(peak_idx >= 0) & (peak_idx < filt.size)]
+            if peak_idx.size:
+                self.plot_ecg.plot(
+                    t[peak_idx],
+                    filt[peak_idx],
+                    pen=None,
+                    symbol="o",
+                    symbolSize=6,
+                    symbolBrush=pg.mkBrush(255, 80, 80, 200),
+                )
+
+        hr_t = np.asarray(self._report_data["hr_times_s"], dtype=float)
+        hr_b = np.asarray(self._report_data["hr_bpm"], dtype=float)
+        if hr_t.size and hr_b.size:
+            self.plot_hr.plot(
+                hr_t,
+                hr_b,
+                pen=pg.mkPen((255, 165, 0), width=2),
+                symbol="o",
+                symbolSize=5,
+                symbolBrush=pg.mkBrush(255, 165, 0, 180),
+                symbolPen=pg.mkPen(None),
+            )
+
+        # Beat overlays centered on R-peaks (practical first version).
+        pre_s = 0.25
+        post_s = 0.45
+        pre_n = int(round(pre_s * fs))
+        post_n = int(round(post_s * fs))
+        beat_segments = []
+        for idx in peak_idx.tolist():
+            left = idx - pre_n
+            right = idx + post_n
+            if left < 0 or right >= filt.size:
+                continue
+            beat_segments.append(filt[left:right])
+
+        if beat_segments:
+            beats = np.vstack(beat_segments)
+            beat_t_ms = (np.arange(beats.shape[1], dtype=float) - pre_n) * (1000.0 / fs)
+            for beat in beats:
+                self.plot_beats.plot(beat_t_ms, beat, pen=pg.mkPen((120, 120, 120, 80), width=1))
+            mean_beat = np.mean(beats, axis=0)
+            self.plot_beats.plot(beat_t_ms, mean_beat, pen=pg.mkPen((255, 220, 0), width=3))
+            self._beats_info_label.setText(
+                f"Individual beats shown: {beats.shape[0]}  |  Mean beat overlay in yellow."
+            )
+        else:
+            self._beats_info_label.setText(
+                "Individual beats panel unavailable for this run (not enough complete R-peak windows)."
+            )
+
+    def _save_reports(self) -> None:
+        self._save_callback(self._report_data)
+
+
 class AcquisitionWorker(QObject):
     sample_ready = pyqtSignal(object)
     eof_reached = pyqtSignal()
@@ -521,16 +647,16 @@ class VERMainWindow(QMainWindow):
         self.bandpass = BandpassFilter()
         self.scope = ECGScopeProcessor(self.bandpass)
 
-        # ECG rolling processor for streaming / 1× / 10× file replay
+        # ECG rolling processor for live USB serial processing
         self._ecg_rolling = self._build_ecg_rolling_processor()
 
-        # Offline batch processor (max-speed mode)
+        # Offline batch processor (whole-file / pre-report processing)
         self._ecg_offline = self._build_ecg_offline_processor()
 
-        # Buffer to collect raw ECG samples during max-speed replay.
-        # Filled in _handle_single_sample when _is_max_speed() is True;
-        # processed in _handle_eof to produce the final analysis results.
+        # Legacy buffer retained for compatibility with inherited EOF code paths.
         self._max_speed_raw_buffer: list[float] = []
+        self._captured_serial_raw: list[float] = []
+        self._latest_pre_report_data: dict | None = None
 
         self._build_ui()
         self._sync_artifact_settings_from_ui()
@@ -566,8 +692,8 @@ class VERMainWindow(QMainWindow):
         )
 
     def _is_max_speed(self) -> bool:
-        """Return True when the speed combo is set to maximum speed."""
-        return "Maximum" in self.speed_combo.currentText()
+        """Return True only for file mode when speed combo is set to maximum."""
+        return self.acquisition_source_mode == "File" and "Maximum" in self.speed_combo.currentText()
 
     def _selected_species_value(self) -> str:
         """Legacy stub — species combo removed from ECG path; returns empty string."""
@@ -594,7 +720,7 @@ class VERMainWindow(QMainWindow):
         current_speed_text = self.speed_combo.currentText()
         is_running = self.worker is not None
         
-        if is_running and "Maximum" in current_speed_text:
+        if is_running and self.acquisition_source_mode == "File" and "Maximum" in current_speed_text:
             # Set a fixed size for the warning box
             self.max_speed_warning.resize(400, 100)
             # Center it relative to the current window size
@@ -604,11 +730,6 @@ class VERMainWindow(QMainWindow):
         else:
             self.max_speed_warning.hide()
 
-    def _on_speed_changed(self, text: str):
-        # ... update this to call the new function ...
-        self._update_warning_visibility()
-        # ...
-    
     def resizeEvent(self, event):
         # Only update the position if the warning is actually visible
         if self.max_speed_warning.isVisible():
@@ -653,6 +774,10 @@ class VERMainWindow(QMainWindow):
             "The display trace always uses the Butterworth causal filter for\n"
             "low-latency scrolling; the selected mode applies to peak detection."
         )
+        self.filter_mode_combo.currentTextChanged.connect(self._on_filter_mode_changed)
+        self.filter_mode_info_label = QLabel("")
+        self.filter_mode_info_label.setWordWrap(True)
+        self.filter_mode_info_label.setStyleSheet("color: #d0d0d0; font-size: 11px;")
 
         apply_filter_btn = QPushButton("Apply Filter")
         apply_filter_btn.clicked.connect(self._apply_filter_settings)
@@ -661,16 +786,19 @@ class VERMainWindow(QMainWindow):
         self.start_btn = QPushButton("Start")
         self.stop_btn = QPushButton("Stop  (Space)")
         self.reset_btn = QPushButton("Reset")
-        self.save_btn = QPushButton("Save Report")
+        self.save_btn = QPushButton("Pre-report")
         self.start_btn.clicked.connect(self.start_acquisition)
         self.stop_btn.clicked.connect(self.stop_acquisition)
         self.reset_btn.clicked.connect(self.reset_all)
-        self.save_btn.clicked.connect(self.save_report)
+        self.save_btn.clicked.connect(self.open_pre_report)
 
         # --- Speed Widget ---
         self.speed_combo = QComboBox()
         self.speed_combo.addItems(["Real-time (1×)", "Fast (10×)", "Maximum speed"])
-        self.speed_combo.setToolTip("Replay speed")
+        self.speed_combo.setToolTip(
+            "File mode keeps these options for compatibility; analysis is run as "
+            "full offline compute before pre-report."
+        )
         self.speed_combo.currentTextChanged.connect(self._on_speed_changed)
 
         # --- Input Source Widgets ---
@@ -719,6 +847,7 @@ class VERMainWindow(QMainWindow):
         group3 = QGroupBox("3. ECG Filter Settings")
         layout3 = QFormLayout()
         layout3.addRow("Filter mode:", self.filter_mode_combo)
+        layout3.addRow("Mode details:", self.filter_mode_info_label)
         layout3.addRow("Low cut (Hz):", self.low_spin)
         layout3.addRow("High cut (Hz):", self.high_spin)
         layout3.addRow(apply_filter_btn)
@@ -891,14 +1020,33 @@ class VERMainWindow(QMainWindow):
         """)
         self.max_speed_warning.hide()
         self.max_speed_warning.raise_()
+        self._on_filter_mode_changed(self.filter_mode_combo.currentText())
 
     def _on_speed_changed(self, text: str):
         if self.worker is not None:
-            if "Maximum" in text:
+            if self.acquisition_source_mode == "File" and "Maximum" in text:
                 self.display.set_status("⚡ Maximum Speed: Live graphs paused.")
             else:
                 self.display.set_status("Running...")
         self._update_warning_visibility()
+
+    def _filter_mode_uses_low_high(self, mode: str) -> bool:
+        """Return True when low/high cut settings are active for *mode*."""
+        return mode != ECG_FILTER_NEUROKIT2
+
+    def _on_filter_mode_changed(self, mode: str) -> None:
+        uses_low_high = self._filter_mode_uses_low_high(mode)
+        self.low_spin.setEnabled(uses_low_high)
+        self.high_spin.setEnabled(uses_low_high)
+        if uses_low_high:
+            self.filter_mode_info_label.setText(
+                "Low cut / High cut are active for this filter mode."
+            )
+        else:
+            self.filter_mode_info_label.setText(
+                "Low cut / High cut are disabled for this mode "
+                "(ignored for peak detection; current display bandpass remains unchanged)."
+            )
     
     def _build_menu(self):
         menubar = self.menuBar()
@@ -909,8 +1057,8 @@ class VERMainWindow(QMainWindow):
         open_action = QAction("Open Data File", self)
         open_action.triggered.connect(lambda: self._select_data_file(initial=False))
         
-        save_action = QAction("Save Report", self)
-        save_action.triggered.connect(self.save_report)
+        save_action = QAction("Open Pre-report", self)
+        save_action.triggered.connect(self.open_pre_report)
         
         # NOTE: "Downsample LabChart file" action has been removed from the ECG
         # UI path — it was VER-specific (LabChart 1000 Hz → 250 Hz conversion)
@@ -1015,7 +1163,7 @@ class VERMainWindow(QMainWindow):
             self._refresh_serial_ports()
             self.display.set_status("Source: USB Serial microcontroller")
         else:
-            self.display.set_status("Source: File replay")
+            self.display.set_status("Source: File replay (full offline compute before pre-report)")
         if self.worker is not None:
             self._shutdown_worker()
 
@@ -1107,6 +1255,12 @@ class VERMainWindow(QMainWindow):
         self._sync_artifact_settings_from_ui()
         _refresh_runtime_classifier_settings(self.settings_manager.settings.get("CLASSIFIER_CONFIG", {}))
 
+        # File mode now runs as full offline analysis before visualization.
+        if self.acquisition_source_mode == "File":
+            self._run_file_analysis_offline()
+            self.tabs.setCurrentIndex(0)
+            return
+
         if self.worker is None:
             if self.scope.flash_count > 0 or self.scope.session_averages:
                 resp = QMessageBox.question(
@@ -1118,13 +1272,9 @@ class VERMainWindow(QMainWindow):
                 if resp == QMessageBox.StandardButton.Yes:
                     self.reset_all()
             
-            # Enable display-update suppression for maximum-speed mode.
-            # _handle_eof will clear this flag and flush the display after analysis.
-            if current_speed is None:
-                self.display.suppress_updates = True
-                self._max_speed_raw_buffer = []
-            else:
-                self.display.suppress_updates = False
+            self.display.suppress_updates = False
+            self._captured_serial_raw = []
+            self._latest_pre_report_data = None
 
             # Start a brand new worker with the current speed
             self._start_worker(current_speed)
@@ -1139,10 +1289,7 @@ class VERMainWindow(QMainWindow):
 
         # --- NEW STATUS TEXT LOGIC (Moved here so it doesn't get erased!) ---
         self.start_btn.setText("Running...")
-        if current_speed is None:
-            self.display.set_status("⚡ Maximum Speed: Live graphs paused. Analyzing in background...")
-        else:
-            self.display.set_status("Running...")
+        self.display.set_status("Running...")
         # --------------------------------------------------------------------
 
         if self.worker is not None:
@@ -1157,6 +1304,16 @@ class VERMainWindow(QMainWindow):
         if self.worker is not None:
             self.worker.pause_stream()
         self.start_btn.setText("Resume  (Space)")
+        if self.acquisition_source_mode == "Serial" and self._captured_serial_raw:
+            resp = QMessageBox.question(
+                self,
+                "USB capture stopped",
+                "Open pre-report review for the captured USB session?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if resp == QMessageBox.StandardButton.Yes:
+                self._build_serial_pre_report()
             
     def reset_all(self):
         self.bandpass = BandpassFilter({
@@ -1170,6 +1327,8 @@ class VERMainWindow(QMainWindow):
         self._ecg_rolling = self._build_ecg_rolling_processor()
         self._ecg_offline = self._build_ecg_offline_processor()
         self._max_speed_raw_buffer = []
+        self._captured_serial_raw = []
+        self._latest_pre_report_data = None
         self.session_wavelets = []
         self.session_wavelet_freqs = None
         self.session_labels = []
@@ -1230,27 +1389,37 @@ class VERMainWindow(QMainWindow):
 
     def _apply_filter_settings(self):
         """Apply the bandpass frequency settings and reconfigure the ECG processor."""
+        mode = self.filter_mode_combo.currentText()
+        uses_low_high = self._filter_mode_uses_low_high(mode)
         low = float(self.low_spin.value())
         high = float(self.high_spin.value())
-        if low >= high:
+        if uses_low_high and low >= high:
             QMessageBox.warning(self, "Invalid filter", "Low cut must be less than high cut.")
             return
-        # Update causal bandpass filter used for the scrolling display trace
-        self.bandpass.redesign(low, high)
+        # Update causal bandpass filter used for the scrolling display trace.
+        # Keep this stable in non-bandpass analysis modes where low/high are disabled.
+        if uses_low_high:
+            self.bandpass.redesign(low, high)
         # Update ECG processing config and rebuild the rolling processor
         self._ecg_proc_cfg["lowcut_hz"] = low
         self._ecg_proc_cfg["highcut_hz"] = high
-        self._ecg_proc_cfg["filter_mode"] = self.filter_mode_combo.currentText()
+        self._ecg_proc_cfg["filter_mode"] = mode
         self._ecg_rolling.reconfigure(
             filter_mode=self._ecg_proc_cfg["filter_mode"],
             lowcut_hz=low,
             highcut_hz=high,
         )
         self._ecg_offline = self._build_ecg_offline_processor()
-        self.display.set_status(
-            f"Filter updated: {low:.1f}–{high:.1f} Hz  "
-            f"[{self._ecg_proc_cfg['filter_mode']}]"
-        )
+        if uses_low_high:
+            self.display.set_status(
+                f"Filter updated: {low:.1f}–{high:.1f} Hz  "
+                f"[{self._ecg_proc_cfg['filter_mode']}]"
+            )
+        else:
+            self.display.set_status(
+                f"Filter mode updated: [{self._ecg_proc_cfg['filter_mode']}] "
+                "(Low/High cut ignored for this mode)."
+            )
 
     def _save_ecg_processing_settings(self) -> None:
         """Read values from the ECG Processing Settings tab and persist to JSON."""
@@ -1274,6 +1443,218 @@ class VERMainWindow(QMainWindow):
 
         self.display.set_status("ECG processing settings saved.")
         log.info("ECG processing settings saved: %s", self._ecg_proc_cfg)
+
+    def _build_pre_report_data(
+        self,
+        raw_signal: np.ndarray,
+        offline_result,
+        source_label: str,
+        output_prefix: str,
+        output_dir: Path,
+    ) -> dict:
+        """Create a normalized container used by the pre-report dialog and CSV export."""
+        raw_arr = np.asarray(raw_signal, dtype=float)
+        filtered = np.asarray(offline_result.filtered_signal, dtype=float)
+        if filtered.size != raw_arr.size:
+            filtered = raw_arr.copy()
+
+        return {
+            "sample_rate": float(ACQ_CONFIG.get("sample_rate", 250.0)),
+            "raw_signal": raw_arr,
+            "filtered_signal": filtered,
+            "r_peak_indices": list(offline_result.r_peak_indices),
+            "r_peak_times_s": list(offline_result.r_peak_times_s),
+            "hr_times_s": list(offline_result.hr_times_s),
+            "hr_bpm": list(offline_result.hr_bpm),
+            "beat_count": int(offline_result.beat_count),
+            "mean_hr_bpm": offline_result.mean_hr_bpm,
+            "duration_s": float(offline_result.duration_s),
+            "source_label": source_label,
+            "output_prefix": output_prefix,
+            "output_dir": str(output_dir),
+        }
+
+    def _show_pre_report_dialog(self, report_data: dict) -> None:
+        dlg = ECGPreReportDialog(report_data=report_data, save_callback=self._save_pre_report_csvs, parent=self)
+        dlg.exec()
+
+    def _serial_output_prefix(self) -> str:
+        if self.worker is not None and hasattr(self.worker, "source"):
+            raw_path = getattr(self.worker.source, "_raw_log_path", None)
+            if raw_path:
+                return Path(raw_path).stem
+        return time.strftime("serial_capture_%Y%m%d_%H%M%S")
+
+    def _run_file_analysis_offline(self) -> None:
+        """Run full-file offline compute, then open the dedicated pre-report dialog."""
+        if not self.data_file:
+            QMessageBox.warning(self, "No ECG file", "Please select an ECG file first.")
+            return
+
+        selected_speed = self.speed_combo.currentText()
+        self.start_btn.setText("Running...")
+        self.max_speed_warning.setText(
+            "PROCESSING FILE OFFLINE\nComputing full analysis before visualization"
+        )
+        self.max_speed_warning.resize(520, 100)
+        self.max_speed_warning.move(int((self.width() - 520) / 2), 150)
+        self.max_speed_warning.show()
+        self.max_speed_warning.raise_()
+        self.display.set_status(f"Processing file offline ({selected_speed} selected)…")
+        QApplication.processEvents()
+
+        try:
+            loader = ECGFileLoader(
+                self.data_file,
+                sample_rate=float(ACQ_CONFIG.get("sample_rate", 250.0)),
+                speed_factor=None,
+            )
+            raw_signal, warnings = loader.load()
+            if raw_signal.size == 0:
+                details = "\n".join(warnings) if warnings else "No valid numeric ECG samples found."
+                QMessageBox.warning(self, "File load failed", details)
+                return
+            if warnings:
+                QMessageBox.information(
+                    self,
+                    "File loaded with warnings",
+                    "\n".join(warnings[:6]) + ("\n…" if len(warnings) > 6 else ""),
+                )
+
+            offline_result = self._ecg_offline.process(raw_signal)
+            file_path = Path(self.data_file)
+            self._latest_pre_report_data = self._build_pre_report_data(
+                raw_signal=raw_signal,
+                offline_result=offline_result,
+                source_label=f"File analysis complete: {file_path.name}",
+                output_prefix=file_path.stem,
+                output_dir=file_path.parent,
+            )
+            self.display.set_status(
+                f"File analysis complete — {offline_result.beat_count} beats, "
+                f"duration {offline_result.duration_s:.1f} s."
+            )
+            self._show_pre_report_dialog(self._latest_pre_report_data)
+        except Exception as exc:
+            log.exception("File offline analysis failed")
+            QMessageBox.critical(self, "Analysis error", f"Failed to process file:\n{exc}")
+            self.display.set_status("File analysis failed.")
+        finally:
+            self.max_speed_warning.hide()
+            self.start_btn.setText("Start")
+
+    def _build_serial_pre_report(self) -> bool:
+        """Build and open a pre-report from captured USB serial samples."""
+        raw_signal = np.asarray(self._captured_serial_raw, dtype=float)
+        if raw_signal.size < 50:
+            QMessageBox.information(
+                self,
+                "Not enough data",
+                "Capture more USB data before opening pre-report.",
+            )
+            return False
+
+        self.display.set_status("Preparing pre-report from captured USB session…")
+        QApplication.processEvents()
+        try:
+            offline_result = self._ecg_offline.process(raw_signal)
+            self._latest_pre_report_data = self._build_pre_report_data(
+                raw_signal=raw_signal,
+                offline_result=offline_result,
+                source_label="USB serial capture pre-report",
+                output_prefix=self._serial_output_prefix(),
+                output_dir=Path.cwd(),
+            )
+            self._show_pre_report_dialog(self._latest_pre_report_data)
+            return True
+        except Exception as exc:
+            log.exception("Failed to build serial pre-report")
+            QMessageBox.critical(self, "Pre-report error", f"Failed to prepare USB pre-report:\n{exc}")
+            return False
+
+    def open_pre_report(self) -> None:
+        """Open the latest pre-report, or generate one from captured USB data."""
+        if self._latest_pre_report_data is not None:
+            self._show_pre_report_dialog(self._latest_pre_report_data)
+            return
+
+        if self.acquisition_source_mode == "Serial" and self._captured_serial_raw:
+            self._build_serial_pre_report()
+            return
+
+        QMessageBox.information(
+            self,
+            "Pre-report unavailable",
+            "Run a file analysis or capture USB data first.",
+        )
+
+    def _save_pre_report_csvs(self, report_data: dict) -> None:
+        """Save continuous and beat-by-beat CSV outputs from pre-report data."""
+        default_dir = str(report_data.get("output_dir", Path.cwd()))
+        selected_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Choose folder for report CSV files",
+            default_dir,
+        )
+        if not selected_dir:
+            return
+
+        out_dir = Path(selected_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        prefix = str(report_data.get("output_prefix", "ecg_analysis"))
+
+        fs = float(report_data["sample_rate"])
+        raw = np.asarray(report_data["raw_signal"], dtype=float)
+        filt = np.asarray(report_data["filtered_signal"], dtype=float)
+        hr_times = np.asarray(report_data["hr_times_s"], dtype=float)
+        hr_bpm = np.asarray(report_data["hr_bpm"], dtype=float)
+        peak_idx = np.asarray(report_data["r_peak_indices"], dtype=int)
+
+        continuous_path = out_dir / f"{prefix}_continuous_signals.csv"
+        beat_path = out_dir / f"{prefix}_beat_summary.csv"
+
+        time_s = np.arange(raw.size, dtype=float) / fs
+        hr_per_sample = np.full(raw.size, np.nan, dtype=float)
+        for t_s, bpm in zip(hr_times, hr_bpm):
+            i = int(round(t_s * fs))
+            if 0 <= i < hr_per_sample.size:
+                hr_per_sample[i] = float(bpm)
+
+        with continuous_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["time_s", "raw_ecg", "filtered_ecg", "heart_rate_bpm"])
+            for i in range(raw.size):
+                hr_value = "" if np.isnan(hr_per_sample[i]) else f"{hr_per_sample[i]:.6f}"
+                writer.writerow(
+                    [
+                        f"{time_s[i]:.6f}",
+                        f"{raw[i]:.9f}",
+                        f"{filt[i]:.9f}",
+                        hr_value,
+                    ]
+                )
+
+        with beat_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["beat_number", "r_peak_index", "r_peak_time_s", "rr_interval_s", "heart_rate_bpm"])
+            for beat_no, idx in enumerate(peak_idx.tolist(), start=1):
+                t_s = idx / fs
+                if beat_no == 1:
+                    rr_s = ""
+                    bpm = ""
+                else:
+                    prev_idx = peak_idx[beat_no - 2]
+                    rr = (idx - prev_idx) / fs
+                    rr_s = f"{rr:.6f}"
+                    bpm = f"{(60.0 / rr):.6f}" if rr > 0 else ""
+                writer.writerow([beat_no, idx, f"{t_s:.6f}", rr_s, bpm])
+
+        QMessageBox.information(
+            self,
+            "Reports saved",
+            f"Saved CSV reports:\n{continuous_path.name}\n{beat_path.name}\n\nFolder:\n{out_dir}",
+        )
+        self.display.set_status(f"Saved pre-report CSVs to {out_dir}")
 
     def _handle_sample(self, row: np.ndarray):
         samples = np.asarray(row, dtype=float)
@@ -1301,6 +1682,8 @@ class VERMainWindow(QMainWindow):
         trigger = bool(sample[0])   # always False in ECG path
         ecg = float(sample[1])
         filtered = self.bandpass.process_sample(ecg)  # causal IIR for display trace
+        if self.acquisition_source_mode == "Serial":
+            self._captured_serial_raw.append(ecg)
 
         if self._is_max_speed():
             # Maximum-speed mode: buffer raw ECG samples, suppress all display updates.
