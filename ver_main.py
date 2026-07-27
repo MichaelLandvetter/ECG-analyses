@@ -24,18 +24,16 @@ if getattr(sys, 'frozen', False):
     import pyi_splash
 
 from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QTextOption
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
-    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
-    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -44,7 +42,6 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSlider,
-    QTextBrowser,
     QTextEdit,
     QSpinBox,
     QTabWidget,
@@ -57,15 +54,13 @@ from ecg_loader import ECGFileLoader
 
 # --- Generic infrastructure (keep for ECG) ---
 from ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
-from ver_config import ACQ_CONFIG, EPOCH_CONFIG, FILE_CONFIG, FILTER_CONFIG, SERIAL_CONFIG
+from ver_config import ACQ_CONFIG, EPOCH_CONFIG, FILTER_CONFIG, SERIAL_CONFIG
 from ver_display import VERDisplayWidget
 from ver_filter import BandpassFilter
 from ver_logging import setup_logging
 from ver_wavelet import compute_wavelet_scalogram
-from ver_downsample import downsample_labchart_file
-from ver_settings import SettingsManager
 from ver_ml_logger import launch_ml_logger
-from ver_preflight import suggest_exclusion_from_file
+from ver_settings import SettingsManager
 from ver_analysis_flow import (
     BACK_TO_ANALYSIS,
     CANCEL_ANALYSIS,
@@ -89,10 +84,8 @@ from ecg_scope import ECGScopeProcessor  # REPLACEMENT BOUNDARY (transitional pl
 
 log = logging.getLogger(__name__)
 ARTIFACT_THRESHOLD_MIN_UV = 0.0001
-PEAK_DETECTION_MODE_OPTIONS = {
-    "legacy_top3": "Legacy: top 3 extrema by amplitude",
-    "dominant_opposite_neighbors": "Dominant peak + opposite-polarity neighbors",
-}
+# NOTE: PEAK_DETECTION_MODE_OPTIONS (VER-specific classifier peak mode labels)
+# removed along with ClassifierSettingsTab in the ECG cleanup PR.
 
 
 def _refresh_runtime_classifier_settings(classifier_cfg: dict | None) -> None:
@@ -171,76 +164,10 @@ def auto_detect_file_format(filepath: str) -> str | None:
 
     return None
 
-class DownsampleDialog(QDialog):
-    """Modal dialog for downsampling LabChart files (1000 Hz → 250 Hz).
-
-    Opens as a modal window (blocking the main window) and stays open after
-    each conversion so the user can process multiple files in sequence.
-    Close the dialog when all files have been downsampled.
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Downsample LabChart File")
-        self.setFixedSize(560, 300)
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-
-        info_label = QLabel(
-            "This tool downsamples LabChart .txt files from 1000 Hz to 250 Hz "
-            "using anti-alias decimation.\n\n"
-            "Click the button to select a file. The output is saved in the same "
-            "directory with '_250_Hz' added to the filename.\n\n"
-            "You can downsample multiple files before closing this window."
-        )
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
-
-        select_btn = QPushButton("Select file to downsample")
-        select_btn.clicked.connect(self._select_and_downsample)
-        layout.addWidget(select_btn)
-
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.close)
-        layout.addWidget(close_btn)
-        layout.addStretch(1)
-
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setFrameShadow(QFrame.Shadow.Sunken)
-        layout.addWidget(separator)
-
-        status_title = QLabel("Status")
-        layout.addWidget(status_title)
-
-        self._status_label = QTextBrowser()
-        self._status_label.setReadOnly(True)
-        self._status_label.setWordWrapMode(QTextOption.WrapMode.WrapAnywhere)
-        self._status_label.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._status_label.setFixedHeight(58)
-        layout.addWidget(self._status_label)
-
-    def _select_and_downsample(self):
-        input_filepath, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select LabChart file to downsample (1000 Hz → 250 Hz)",
-            "",
-            "Text files (*.txt);;All files (*.*)",
-        )
-        if not input_filepath:
-            return
-        try:
-            output_path, note = downsample_labchart_file(input_filepath)
-            msg = f"Saved: {output_path}"
-            if note:
-                msg += f"\n{note}"
-            else:
-                msg += "\nData integrity check: no malformed rows detected."
-            self._status_label.setPlainText(msg)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Downsampling failed:\n{e}")
-
+# NOTE: DownsampleDialog (VER-specific LabChart downsampling tool) has been
+# removed from the active ECG UI path.  The underlying ver_downsample module
+# is retained as legacy code but is no longer accessible from the application
+# menu.  See Task 4 in the cleanup PR for details.
 
 class ExclusionTuningDialog(QDialog):
     """Pre-analysis dialog for visual artifact-threshold tuning via signal plot.
@@ -549,107 +476,13 @@ class AcquisitionWorker(QObject):
     def stop(self):
         self._running = False
         self._paused = False
-        
-class ClassifierSettingsTab(QWidget):
-    def __init__(self, settings_manager):
-        super().__init__()
-        self.sm = settings_manager
-        main_layout = QVBoxLayout()
-        self.cfg = self.sm.settings.get("CLASSIFIER_CONFIG", {})
-        self.inputs = {}
-        self.peak_detection_mode_combo = QComboBox()
 
-        # 1. Define groups: (Group Title, [(Key, Label, Tooltip, Decimals)])
-        groups = [
-            ("Frequency & Power", [
-                ("min_scale", "Lower limit of frequency band (Hz)", "Lower limit of frequency band", 1),
-                ("max_scale", "Upper limit of frequency band (Hz)", "Upper limit of frequency band", 1),
-                ("min_power", "Minimum energy (power) threshold for detection", "Minimum energy threshold for detection", 9)
-            ]),
-            ("Timing Windows", [
-                ("p2_min_latency", "Earliest allowed Feature-2 peak (ms)", "Earliest allowed Feature-2 peak", 1),
-                ("p2_max_latency", "Latest allowed Feature-2 peak (ms)", "Latest allowed Feature-2 peak", 1)
-            ]),
-            ("Waveform Morphology", [
-                ("ipi_min", "Minimum distance between Feature-1 and Feature-2 (ms)", "Minimum distance between Feature-1 and Feature-2", 1),
-                ("ipi_max", "Maximum distance between Feature-1 and Feature-2 (ms)", "Maximum distance between Feature-1 and Feature-2", 1),
-                ("p3_p2_max", "Limit for Feature-3/Feature-2 separation (ms)", "Limit for Feature-3/Feature-2 separation", 1)
-            ]),
-            ("Signal quality threshold used during initial analysis", [
-                ("snr_threshold", "Signal-to-noise threshold for valid provisional peak", "Signal-to-noise threshold for provisional peak", 1)
-            ])
-        ]
-
-        # 2. Build the UI
-        for title, field_list in groups:
-            group_box = QGroupBox(title)
-            group_layout = QFormLayout()
-            
-            for key, label, tooltip, dec in field_list:
-                spin = QDoubleSpinBox()
-                
-                # Configure based on key
-                if "power" in key:
-                    spin.setDecimals(2)
-                    spin.setRange(0.0, 10.0)
-                    spin.setSuffix(" x 10^-7")
-                    # Scale for display: stored value 1e-7 becomes 1.0
-                    val = self.cfg.get(key, 1.0e-7) / 1e-7
-                    spin.setValue(val)
-                else:
-                    spin.setDecimals(dec)
-                    spin.setRange(0, 1000)
-                    spin.setSingleStep(0.1)
-                    spin.setValue(self.cfg.get(key, 2.0))
-                
-                lbl = QLabel(label)
-                lbl.setToolTip(tooltip)
-                group_layout.addRow(lbl, spin)
-                self.inputs[key] = spin
-                
-            group_box.setLayout(group_layout)
-            main_layout.addWidget(group_box)
-
-        peak_mode_box = QGroupBox("Detection mode used for initial feature picks")
-        peak_mode_layout = QFormLayout()
-        for value, label in PEAK_DETECTION_MODE_OPTIONS.items():
-            self.peak_detection_mode_combo.addItem(label, value)
-        selected_mode = str(self.cfg.get("peak_detection_mode", "legacy_top3"))
-        selected_index = self.peak_detection_mode_combo.findData(selected_mode)
-        self.peak_detection_mode_combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
-        self.peak_detection_mode_combo.setToolTip(
-            "Controls how Feature-1/2/3 are seeded before manual review."
-        )
-        peak_mode_layout.addRow(QLabel("Mode"), self.peak_detection_mode_combo)
-        peak_mode_box.setLayout(peak_mode_layout)
-        main_layout.addWidget(peak_mode_box)
-
-        # 3. Save Button
-        save_btn = QPushButton("Save Detection Settings")
-        save_btn.clicked.connect(self.save_settings)
-        main_layout.addWidget(save_btn)
-        main_layout.addStretch()
-        self.setLayout(main_layout)
-
-    def save_settings(self):
-        for key, spin in self.inputs.items():
-            if "power" in key:
-                # Convert "1.0" back to "1e-7"
-                self.cfg[key] = spin.value() * 1e-7
-            else:
-                self.cfg[key] = spin.value()
-        self.cfg["peak_detection_mode"] = self.peak_detection_mode_combo.currentData()
-
-        self.sm.settings["CLASSIFIER_CONFIG"] = self.cfg
-        self.sm.save_settings()
-
-        _refresh_runtime_classifier_settings(self.cfg)
-
-        QMessageBox.information(
-            self,
-            "Settings Saved",
-            "Detection settings saved.\n\nChanges are queued for the next time you click Start. The current graph stays unchanged until then."
-        )
+# NOTE: ClassifierSettingsTab (VER-specific signal classifier UI) has been
+# removed from the active ECG GUI path.  The underlying CLASSIFIER_CONFIG
+# settings are still loaded and applied at analysis start via
+# _refresh_runtime_classifier_settings, but can no longer be edited from the
+# UI in this cleanup release.  The tab slot is now held by the ECG Processing
+# Settings placeholder tab.
 
 class VERMainWindow(QMainWindow):
     def __init__(self):
@@ -869,52 +702,31 @@ class VERMainWindow(QMainWindow):
         main_layout.addWidget(self.display)
         self.tabs.addTab(self.main_tab, "Analysis View")
 
-        # 3. Create the Settings Tab as Tab 2
-        self.settings_tab = QWidget()
-        settings_layout = QFormLayout(self.settings_tab)
-        
-        # -- Epoch Settings --
-        self.set_pre_stim = QSpinBox()
-        self.set_pre_stim.setRange(0, 1000)
-        self.set_pre_stim.setValue(int(self.settings_manager.settings["EPOCH_CONFIG"]["pre_stim_ms"]))
-        
-        self.set_post_stim = QSpinBox()
-        self.set_post_stim.setRange(100, 2000)
-        self.set_post_stim.setValue(int(self.settings_manager.settings["EPOCH_CONFIG"]["post_stim_ms"]))
-
-        # -- Artifact Rejection Settings --
-        self.set_artifact_enabled = QCheckBox()
-        self.set_artifact_enabled.setChecked(
-            bool(self.settings_manager.settings["EPOCH_CONFIG"].get("artifact_rejection_enabled", True))
+        # 3. ECG Processing Settings tab — placeholder for future ECG variables
+        # The two VER-specific settings tabs (Analysis Settings with epoch timing
+        # and Signal Classifier Settings) have been removed from the ECG UI path.
+        # This tab is intentionally mostly empty and is reserved for future ECG
+        # processing parameters (e.g. filter strategy, R-peak detector options,
+        # rolling-window length) that will be added in the next ECG processing PR.
+        # Settings will be persisted to JSON via SettingsManager when added.
+        self.ecg_settings_tab = QWidget()
+        ecg_settings_layout = QVBoxLayout(self.ecg_settings_tab)
+        ecg_placeholder_label = QLabel(
+            "<b>ECG Processing Settings</b><br><br>"
+            "This tab is a placeholder for future ECG processing configuration.<br><br>"
+            "Planned settings (next PR):<br>"
+            "• Filter strategy (Butterworth / zero-phase IIR/FIR / notch)<br>"
+            "• R-peak detector selection<br>"
+            "• Rolling-window length and overlap<br>"
+            "• Heart rate display smoothing<br><br>"
+            "<i>No VER-specific settings are shown here.  "
+            "Flash-trigger epoch and classifier settings have been removed.</i>"
         )
-        self.set_artifact_enabled.toggled.connect(self._sync_artifact_settings_from_ui)
-
-        self.set_artifact_threshold = QDoubleSpinBox()
-        self.set_artifact_threshold.setRange(ARTIFACT_THRESHOLD_MIN_UV, 10.0)
-        self.set_artifact_threshold.setSingleStep(0.001)
-        self.set_artifact_threshold.setDecimals(4)
-        self.set_artifact_threshold.setValue(
-            float(self.settings_manager.settings["EPOCH_CONFIG"].get("artifact_exclusion_uv", 0.01))
-        )
-        self.set_artifact_threshold.valueChanged.connect(self._sync_artifact_settings_from_ui)
-
-        # -- Add to Layout --
-        settings_layout.addRow(QLabel("<b>Analysis Window</b>"))
-        settings_layout.addRow("Pre-trigger Time (ms):", self.set_pre_stim)
-        settings_layout.addRow("Post-trigger Time (ms):", self.set_post_stim)
-        settings_layout.addRow("Enable artifact rejection:", self.set_artifact_enabled)
-        settings_layout.addRow("Exclusion threshold (±):", self.set_artifact_threshold)
-
-        # -- Save Button --
-        self.save_settings_btn = QPushButton("Save and Apply Settings")
-        self.save_settings_btn.clicked.connect(self._save_user_settings)
-        settings_layout.addRow(self.save_settings_btn)
-
-        self.tabs.addTab(self.settings_tab, "Analysis Settings")
-        
-        # -- 4. ADD THE NEW CLASSIFIER TAB (This creates the 3rd Tab) --
-        self.classifier_tab = ClassifierSettingsTab(self.settings_manager)
-        self.tabs.addTab(self.classifier_tab, "Signal Classifier Settings (Transitional)")
+        ecg_placeholder_label.setWordWrap(True)
+        ecg_placeholder_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        ecg_settings_layout.addWidget(ecg_placeholder_label)
+        ecg_settings_layout.addStretch()
+        self.tabs.addTab(self.ecg_settings_tab, "ECG Processing Settings")
         
         self.setCentralWidget(central)
         
@@ -956,8 +768,10 @@ class VERMainWindow(QMainWindow):
         save_action = QAction("Save Report", self)
         save_action.triggered.connect(self.save_report)
         
-        downsample_action = QAction("Downsample LabChart file (1000 Hz → 250 Hz)...", self)
-        downsample_action.triggered.connect(self._on_downsample)
+        # NOTE: "Downsample LabChart file" action has been removed from the ECG
+        # UI path — it was VER-specific (LabChart 1000 Hz → 250 Hz conversion)
+        # and is not part of the ECG workflow.  The ver_downsample module is
+        # retained as legacy code but is no longer accessible from the menu.
         
         usb_test_action = QAction("USB Test", self)
         usb_test_action.setToolTip("Open the dedicated USB Serial Port testing tool")
@@ -970,7 +784,6 @@ class VERMainWindow(QMainWindow):
         # 2. Add them to the menu in the exact order you want them to appear!
         file_menu.addAction(open_action)
         file_menu.addAction(save_action)
-        file_menu.addAction(downsample_action)
         file_menu.addAction(usb_test_action)    
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
@@ -989,10 +802,6 @@ class VERMainWindow(QMainWindow):
             "Inherited from the VER-analyses codebase; ECG-specific analysis "
             "logic is in development.  See TRANSITION.md for details.",
         )
-
-    def _on_downsample(self):
-        dlg = DownsampleDialog(self)
-        dlg.exec()
 
     def _select_data_file(self, initial: bool = False):
         default_path = str(Path.cwd())
@@ -1037,30 +846,11 @@ class VERMainWindow(QMainWindow):
                 self.file_label.setText(f"Selected: {fallback.name}")
                 self.display.set_status(f"Loaded file: {fallback.name}")
 
-    def _suggest_exclusion(self):
-        if not self.data_file:
-            QMessageBox.information(self, "Set Exclusion", "Please open a data file first.")
-            return
-
-        try:
-            suggestion = suggest_exclusion_from_file(
-                self.data_file,
-                epoch_config=dict(EPOCH_CONFIG),
-                bandpass_filter=self.bandpass,
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Set Exclusion", f"Failed to estimate exclusion threshold:\n{exc}")
-            return
-
-        tuning_dialog = ExclusionTuningDialog(
-            suggestion,
-            current_threshold_uv=float(self.set_artifact_threshold.value()),
-            parent=self,
-        )
-        if tuning_dialog.exec() == QDialog.DialogCode.Accepted:
-            applied_threshold = tuning_dialog.selected_threshold_uv()
-            self._apply_exclusion_threshold(applied_threshold)
-            self.display.set_status(f"Applied exclusion threshold: ±{applied_threshold:.4f} µV")
+    # _suggest_exclusion (VER-specific artifact threshold tuning dialog) has been
+    # removed: it was never connected to any ECG UI element and referenced the
+    # removed set_artifact_threshold widget.  ExclusionTuningDialog is kept in
+    # this file for now as a transitional artifact; it will be removed or replaced
+    # in a future PR when the ECG processing pipeline is introduced.
 
     def _restart_worker_with_file(self):
         self._shutdown_worker()
@@ -1257,8 +1047,12 @@ class VERMainWindow(QMainWindow):
             self.scope.config["artifact_exclusion_uv"] = artifact_threshold
 
     def _apply_exclusion_threshold(self, threshold_uv: float) -> None:
-        """Apply, clamp, and persist the chosen artifact exclusion threshold."""
+        """Apply, clamp, and persist the chosen artifact exclusion threshold.
 
+        NOTE: The UI widget (set_artifact_threshold) was removed from the ECG
+        GUI in the cleanup PR.  This method now updates EPOCH_CONFIG and the
+        settings JSON directly without a widget interaction.
+        """
         raw_threshold = float(threshold_uv)
         threshold = _clamp_artifact_threshold(raw_threshold)
         if threshold != raw_threshold:
@@ -1267,32 +1061,16 @@ class VERMainWindow(QMainWindow):
                 raw_threshold,
                 threshold,
             )
-        self.set_artifact_threshold.setValue(threshold)
-        self._sync_artifact_settings_from_ui()
+        EPOCH_CONFIG["artifact_exclusion_uv"] = threshold
+        self.settings_manager.settings["EPOCH_CONFIG"]["artifact_exclusion_uv"] = threshold
+        if hasattr(self, "scope") and self.scope is not None:
+            self.scope.config["artifact_exclusion_uv"] = threshold
         self.settings_manager.save_settings(self.settings_manager.settings)
 
-    def _save_user_settings(self):
-        """Grabs the values from the UI, saves them to JSON, and updates live memory."""
-        
-        # Grab current settings dictionary
-        new_settings = self.settings_manager.settings.copy()
-        
-        # Update Epoch numbers
-        new_settings["EPOCH_CONFIG"]["pre_stim_ms"] = float(self.set_pre_stim.value())
-        new_settings["EPOCH_CONFIG"]["post_stim_ms"] = float(self.set_post_stim.value())
-        
-        # Update artifact rejection settings
-        new_settings["EPOCH_CONFIG"]["artifact_rejection_enabled"] = self.set_artifact_enabled.isChecked()
-        new_settings["EPOCH_CONFIG"]["artifact_exclusion_uv"] = float(self.set_artifact_threshold.value())
-
-        self._sync_artifact_settings_from_ui()
-
-        # Save to JSON and apply to live config!
-        self.settings_manager.save_settings(new_settings)
-
-        _refresh_runtime_classifier_settings(new_settings.get("CLASSIFIER_CONFIG", {}))
-        
-        QMessageBox.information(self, "Settings Saved", "Settings saved successfully! \n\n You may need to click 'Reset' or analyze a new file for changes to take effect.")
+    # _save_user_settings has been removed: the VER Analysis Settings and
+    # Signal Classifier Settings tabs that hosted its save button have been
+    # removed from the ECG GUI.  Settings are loaded from JSON on startup and
+    # can be edited manually in user_settings.json between sessions.
 
     def _apply_filter_settings(self):
         low = float(self.low_spin.value())
@@ -1312,12 +1090,20 @@ class VERMainWindow(QMainWindow):
             self._handle_single_sample(sample)
 
     def _handle_single_sample(self, sample: np.ndarray):
+        # sample format: [trigger, ecg_value]
+        # In the active ECG path, sample[0] (trigger) is always 0.0:
+        #   - ECGFileLoader yields [0.0, ecg] (no hardware trigger in plain files)
+        #   - SerialAcquisitionSource now yields [0.0, ecg] (flash trigger discarded)
+        # The trigger field is kept for interface compatibility with the inherited
+        # VER scope processor (ECGScopeProcessor, which inherits VERScopeProcessor).
+        # It will be replaced by R-peak-driven triggering when the ECG processing
+        # module is introduced in the next PR.
         trigger = bool(sample[0])
-        eeg = float(sample[1])
-        filtered = self.bandpass.process_sample(eeg)
+        ecg = float(sample[1])
+        filtered = self.bandpass.process_sample(ecg)
 
-        scope_result = self.scope.process_sample(trigger, eeg)
-        self.display.update_scroll_panel(eeg, filtered, scope_result["trigger_detected"])
+        scope_result = self.scope.process_sample(trigger, ecg)
+        self.display.update_scroll_panel(ecg, filtered, scope_result["trigger_detected"])
 
         current_session = scope_result["session_number"] 
         self._set_progress(current_session, scope_result["flash_count"], scope_result.get("flash_count_accepted")) 
