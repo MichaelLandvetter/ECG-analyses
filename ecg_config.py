@@ -1,12 +1,16 @@
 """ECG-oriented configuration for the ECG Analysis application.
 
 This module exposes the ECG-relevant configuration subset from the inherited
-``ver_config`` module and adds an ECG-specific file format definition.  It
-serves as the canonical config entry-point for the active ECG path.
+``ver_config`` module, adds an ECG-specific file format definition, and
+defines defaults for the ECG processing pipeline introduced in the first
+ECG-processing PR.
 
 Usage::
 
-    from ecg_config import ECG_CONFIG, ECG_FILTER_CONFIG, ECG_DISPLAY_CONFIG, ECG_FILE_CONFIG
+    from ecg_config import (
+        ECG_CONFIG, ECG_FILTER_CONFIG, ECG_DISPLAY_CONFIG,
+        ECG_FILE_CONFIG, ECG_PROCESSING_CONFIG,
+    )
 
 Backward compatibility: ``ver_config`` is preserved as a compatibility shim.
 Settings are persisted via ``ver_settings.SettingsManager`` and the same JSON
@@ -71,3 +75,41 @@ ECG_FILE_CONFIG: dict = {
     # Number of header rows to skip before numeric data begins.
     "skip_header": 0,
 }
+
+# ---------------------------------------------------------------------------
+# ECG processing pipeline configuration
+# ---------------------------------------------------------------------------
+# These defaults populate the ECG Processing Settings tab and are persisted
+# to user_settings.json under the key "ECG_PROCESSING_CONFIG".
+# Import ecg_pipeline constants here to avoid circular imports.
+
+from ecg_pipeline import (  # noqa: E402  (import after dict literals is intentional)
+    ECG_FILTER_DEFAULT,
+    ECG_DETECTOR_DEFAULT,
+)
+
+ECG_PROCESSING_CONFIG: dict = {
+    # --- Filter ---
+    "filter_mode": ECG_FILTER_DEFAULT,          # selected filter strategy string key
+    "lowcut_hz": 0.5,                            # bandpass lower corner (Hz)
+    "highcut_hz": 40.0,                          # bandpass upper corner (Hz)
+    "filter_order": 4,                           # IIR filter order
+    "notch_hz": 50.0,                            # power-line notch frequency (50 or 60 Hz)
+
+    # --- R-peak detection ---
+    "detector_method": ECG_DETECTOR_DEFAULT,     # NeuroKit2 / fallback method string key
+
+    # --- Rolling-window parameters (streaming / real-time) ---
+    "rolling_window_s": 5.0,                     # rolling buffer length (seconds)
+    "detection_interval_s": 0.2,                 # how often to run detection (seconds)
+    "boundary_guard_s": 0.5,                     # right-edge hold-back guard (seconds)
+}
+
+# Apply any saved user overrides from user_settings.json
+try:
+    from ver_settings import SettingsManager as _SM
+    _saved = _SM().load_settings()
+    if "ECG_PROCESSING_CONFIG" in _saved:
+        ECG_PROCESSING_CONFIG.update(_saved["ECG_PROCESSING_CONFIG"])
+except Exception:
+    pass
