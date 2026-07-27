@@ -153,6 +153,18 @@ class ECGOfflineResult:
     duration_s: float = 0.0
     """Duration of the recording in seconds."""
 
+    p_peak_indices: list[int] = field(default_factory=list)
+    """Sample indices of P-wave peaks (empty if delineation was not performed)."""
+
+    q_peak_indices: list[int] = field(default_factory=list)
+    """Sample indices of Q-wave peaks (empty if delineation was not performed)."""
+
+    s_peak_indices: list[int] = field(default_factory=list)
+    """Sample indices of S-wave peaks (empty if delineation was not performed)."""
+
+    t_peak_indices: list[int] = field(default_factory=list)
+    """Sample indices of T-wave peaks (empty if delineation was not performed)."""
+
 
 # ---------------------------------------------------------------------------
 # 1. ECGCleaningFilter — static batch filtering utilities
@@ -645,6 +657,16 @@ class ECGOfflineProcessor:
                 result.hr_bpm = hr_bpm
                 result.beat_count = len(result.r_peak_indices)
                 result.mean_hr_bpm = float(np.mean(hr_bpm)) if hr_bpm else None
+                # Extract P/Q/S/T delineation indices from the signals DataFrame
+                for col, attr in [
+                    ("ECG_P_Peaks", "p_peak_indices"),
+                    ("ECG_Q_Peaks", "q_peak_indices"),
+                    ("ECG_S_Peaks", "s_peak_indices"),
+                    ("ECG_T_Peaks", "t_peak_indices"),
+                ]:
+                    if col in signals_df.columns:
+                        vals = np.asarray(signals_df[col].fillna(0), dtype=float)
+                        setattr(result, attr, np.where(vals == 1)[0].tolist())
                 return result
             except Exception as exc:
                 log.warning("nk.ecg_process failed (%s); using manual pipeline.", exc)
