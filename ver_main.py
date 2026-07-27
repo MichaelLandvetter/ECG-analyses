@@ -473,6 +473,8 @@ class ECGPreReportDialog(QDialog):
         self.plot_hr.setLabel("bottom", "Time", "s")
         self.plot_hr.setLabel("left", "Heart Rate", "bpm")
         self.plot_hr.getViewBox().setMouseEnabled(x=True, y=True)
+        # Lock HR x-axis to the ECG plot so pan/zoom stays in sync
+        self.plot_hr.setXLink(self.plot_ecg)
         layout.addWidget(self.plot_hr, stretch=1)
 
         # --- Individual beats panel ---
@@ -554,6 +556,47 @@ class ECGPreReportDialog(QDialog):
                 self.plot_beats.plot(beat_t_ms, beat, pen=pg.mkPen((120, 120, 120, 80), width=1))
             mean_beat = np.mean(beats, axis=0)
             self.plot_beats.plot(beat_t_ms, mean_beat, pen=pg.mkPen((255, 220, 0), width=3))
+
+            # Overlay P/Q/S/T landmark markers aligned to each beat window.
+            # Each wave type: (report_data key, RGB colour tuple, legend label)
+            wave_specs = [
+                ("p_peak_indices", (100, 180, 255), "P"),
+                ("q_peak_indices", (200,  80, 255), "Q"),
+                ("s_peak_indices", (255, 180,  50), "S"),
+                ("t_peak_indices", ( 60, 220, 160), "T"),
+            ]
+            t_min_ms, t_max_ms = beat_t_ms[0], beat_t_ms[-1]
+            for wave_key, color, wave_label in wave_specs:
+                wave_idx = np.asarray(
+                    self._report_data.get(wave_key, []), dtype=int
+                )
+                if wave_idx.size == 0:
+                    continue
+                wave_idx = wave_idx[(wave_idx >= 0) & (wave_idx < filt.size)]
+                w_t_ms: list[float] = []
+                w_amp: list[float] = []
+                for r_idx in peak_idx.tolist():
+                    left = r_idx - pre_n
+                    right = r_idx + post_n
+                    if left < 0 or right >= filt.size:
+                        continue
+                    in_win = wave_idx[(wave_idx >= left) & (wave_idx < right)]
+                    for w in in_win:
+                        t_rel = (w - r_idx) * 1000.0 / fs
+                        if t_min_ms <= t_rel <= t_max_ms:
+                            w_t_ms.append(t_rel)
+                            w_amp.append(float(filt[w]))
+                if w_t_ms:
+                    self.plot_beats.plot(
+                        w_t_ms, w_amp,
+                        pen=None,
+                        symbol="o",
+                        symbolSize=5,
+                        symbolBrush=pg.mkBrush(*color, 200),
+                        symbolPen=pg.mkPen(None),
+                        name=wave_label,
+                    )
+
             self._beats_info_label.setText(
                 f"Individual beats shown: {beats.shape[0]}  |  Mean beat overlay in gold."
             )
@@ -763,13 +806,21 @@ class VERMainWindow(QMainWindow):
         open_btn.clicked.connect(lambda: self._select_data_file(initial=False))
 
         # --- Filter Widgets (ECG bandpass only) ---
-        self.low_spin = QSpinBox()
-        self.low_spin.setRange(1, 120)
+        self.low_spin = QDoubleSpinBox()
+        self.low_spin.setRange(0.1, 120.0)
+        self.low_spin.setSingleStep(0.1)
+        self.low_spin.setDecimals(1)
         # _ecg_proc_cfg is pre-populated with defaults from ECG_PROCESSING_CONFIG
-        self.low_spin.setValue(int(self._ecg_proc_cfg["lowcut_hz"]))
-        self.high_spin = QSpinBox()
-        self.high_spin.setRange(2, 124)
-        self.high_spin.setValue(int(self._ecg_proc_cfg["highcut_hz"]))
+        self.low_spin.setValue(float(self._ecg_proc_cfg["lowcut_hz"]))
+        self.high_spin = QDoubleSpinBox()
+        self.high_spin.setRange(0.2, 124.0)
+        self.high_spin.setSingleStep(1.0)
+        self.high_spin.setDecimals(1)
+        self.high_spin.setValue(float(self._ecg_proc_cfg["highcut_hz"]))
+        # Ensure high-cut minimum tracks low-cut so the pair always stays valid
+        self.low_spin.valueChanged.connect(
+            lambda v: self.high_spin.setMinimum(round(v + 0.1, 1))
+        )
 
         # Filter mode dropdown — selects the cleaning strategy for peak detection
         self.filter_mode_combo = QComboBox()
@@ -858,7 +909,6 @@ class VERMainWindow(QMainWindow):
         group3 = QGroupBox("3. ECG Filter Settings")
         layout3 = QFormLayout()
         layout3.addRow("Filter mode:", self.filter_mode_combo)
-        layout3.addRow("Mode details:", self.filter_mode_info_label)
         layout3.addRow("Low cut (Hz):", self.low_spin)
         layout3.addRow("High cut (Hz):", self.high_spin)
         layout3.addRow(apply_filter_btn)
@@ -1049,15 +1099,6 @@ class VERMainWindow(QMainWindow):
         uses_low_high = self._filter_mode_uses_low_high(mode)
         self.low_spin.setEnabled(uses_low_high)
         self.high_spin.setEnabled(uses_low_high)
-        if uses_low_high:
-            self.filter_mode_info_label.setText(
-                "Low cut / High cut are active for this filter mode."
-            )
-        else:
-            self.filter_mode_info_label.setText(
-                "Low cut / High cut are disabled for this mode "
-                "(ignored for peak detection; current display bandpass remains unchanged)."
-            )
     
     def _build_menu(self):
         menubar = self.menuBar()
@@ -1489,6 +1530,10 @@ class VERMainWindow(QMainWindow):
             "source_label": source_label,
             "output_prefix": output_prefix,
             "output_dir": str(output_dir),
+            "p_peak_indices": list(offline_result.p_peak_indices),
+            "q_peak_indices": list(offline_result.q_peak_indices),
+            "s_peak_indices": list(offline_result.s_peak_indices),
+            "t_peak_indices": list(offline_result.t_peak_indices),
         }
 
     def _show_pre_report_dialog(self, report_data: dict) -> None:
