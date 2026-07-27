@@ -96,7 +96,22 @@ class FileAcquisitionSimulator:
                 next_yield_time = time.perf_counter()
                 
 class SerialAcquisitionSource:
-    """Read live EEG/trigger data from a microcontroller over USB serial and log it."""
+    """Read live ECG data from a microcontroller over USB serial and log it.
+
+    ECG serial path notes (transition)
+    ------------------------------------
+    - Only the raw ECG channel is extracted from each binary packet.
+    - The flash/stimulus trigger field present in the hardware packet is
+      intentionally discarded; flash-trigger decoding is legacy VER behaviour
+      and is NOT part of the active ECG workflow.
+    - The saved log file contains one column: raw ECG samples only.
+    - The yielded sample format is ``np.array([0.0, ecg_value])`` — the leading
+      0.0 keeps the format compatible with ``ECGFileLoader.stream_samples()``
+      and the ``_handle_single_sample`` pipeline in ``ver_main.py``.
+    - Future work: a transitional analysis hook in ``_handle_single_sample``
+      (currently driven by the inherited VER trigger/scope processor) will be
+      wired to online R-peak detection once the ECG processing module is ready.
+    """
 
     def __init__(
         self,
@@ -114,33 +129,15 @@ class SerialAcquisitionSource:
         self._binary_header = b"\xA5\x5A"
         self._binary_footer = 0x01
         self._binary_packet_size = 9
-        self._serial_trigger_high = False
-        self._serial_trigger_floor = 0.0
-        self._serial_trigger_ceil = 1.0
-        self._serial_trigger_high_threshold = float(SERIAL_CONFIG.get("trigger_high_threshold", 0.7))
-        self._serial_trigger_low_threshold = float(SERIAL_CONFIG.get("trigger_low_threshold", 0.3))
-        
-        # Clean logging variables
+
+        # NOTE: Flash-trigger state fields (_serial_trigger_high, _serial_trigger_floor,
+        # etc.) have been removed from the ECG serial path.  The trigger_state bytes
+        # in each hardware packet are parsed but discarded; only the raw ECG channel
+        # is used.  See _try_parse_binary_sample() below.
+
+        # Raw ECG log file (single-column output)
         self._raw_log_file = None
         self._raw_log_path = None
-
-    def _decode_serial_trigger(self, trigger_state: int) -> float:
-        raw_level = max(0.0, float(trigger_state))
-        self._serial_trigger_floor = min(self._serial_trigger_floor, raw_level)
-        self._serial_trigger_ceil = max(self._serial_trigger_ceil, raw_level)
-        span = self._serial_trigger_ceil - self._serial_trigger_floor
-        if span > 0:
-            normalized_level = (raw_level - self._serial_trigger_floor) / span
-        else:
-            normalized_level = 0.0
-
-        if self._serial_trigger_high:
-            if normalized_level <= self._serial_trigger_low_threshold:
-                self._serial_trigger_high = False
-        elif normalized_level >= self._serial_trigger_high_threshold:
-            self._serial_trigger_high = True
-
-        return 1.0 if self._serial_trigger_high else 0.0
 
     def _open(self) -> None:
         if self._serial is not None:
@@ -151,19 +148,19 @@ class SerialAcquisitionSource:
             raise RuntimeError("pyserial is not installed.") from exc
         self._serial = serial.Serial(self.port, baudrate=self.baud_rate, timeout=self.timeout)
 
-        # Start the background data logger
+        # Start the background raw ECG logger (single-column plain text).
+        # The saved format is compatible with ECGFileLoader: one numeric value
+        # per line, no trigger column, ready for future ECG processing.
         try:
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self._raw_log_path = Path(f"RAW_USB_Data_{timestamp}.txt")
+            self._raw_log_path = Path(f"RAW_USB_ECG_{timestamp}.txt")
             self._raw_log_file = open(self._raw_log_path, "w")
-            
-            # Write exactly 2 columns of dummy headers if your LabChart config expects skipped lines
-            skip_lines = int(FILE_CONFIG.get("skip_header", 0))
-            for i in range(skip_lines):
-                self._raw_log_file.write(f"Header_{i}\tHeader_{i}\n")
+            # Single-column comment header identifies the data and its origin.
+            self._raw_log_file.write("# ECG raw samples — USB serial capture\n")
+            self._raw_log_file.write(f"# Timestamp: {timestamp}  Port: {self.port}  Baud: {self.baud_rate}\n")
         except Exception as e:
-            print(f"Warning: Could not start raw data logger: {e}")
+            print(f"Warning: Could not start raw ECG data logger: {e}")
             self._raw_log_file = None
 
     def close(self) -> None:
@@ -198,14 +195,20 @@ class SerialAcquisitionSource:
             return None
 
         try:
-            _, trigger_state, eeg, _ = struct.unpack("<2sHf1s", packet)
+            # Parse the full hardware packet to consume all bytes correctly.
+            # trigger_state is read from the packet but intentionally discarded:
+            # flash-trigger decoding is legacy VER behaviour; the ECG serial path
+            # uses only the raw ECG channel.  A future R-peak detector will
+            # provide beat-locked triggering instead.
+            _, _trigger_state_unused, eeg, _ = struct.unpack("<2sHf1s", packet)
         except struct.error:
             del self._buffer[0]
             return None
 
         del self._buffer[: self._binary_packet_size]
-        trigger_level = self._decode_serial_trigger(trigger_state)
-        return np.asarray([trigger_level, float(eeg)], dtype=float)
+        # Return format matches ECGFileLoader: [0.0, ecg_value].
+        # The leading 0.0 is a placeholder trigger (no hardware trigger in ECG path).
+        return np.asarray([0.0, float(eeg)], dtype=float)
 
     def stream_samples(self) -> Generator[np.ndarray, None, None]:
         self._open()
@@ -218,11 +221,12 @@ class SerialAcquisitionSource:
                 while True:
                     sample = self._try_parse_binary_sample()
                     if sample is not None:
-                        # --- STRICTLY 2 COLUMNS (Trigger, EEG) ---
+                        # Log only the raw ECG value (single column).
+                        # The trigger column (sample[0]) is always 0.0 in the ECG
+                        # serial path and is not saved to disk.
                         if self._raw_log_file is not None:
-                            row = [str(sample[0]), str(sample[1])]
-                            self._raw_log_file.write("\t".join(row) + "\n")
-                            
+                            self._raw_log_file.write(f"{sample[1]}\n")
+
                         yield sample
                     else:
                         break

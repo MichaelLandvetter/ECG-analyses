@@ -98,7 +98,12 @@ class SettingsManager:
             },
             "ML_LOGGER": {
                 "observer_id": ""
-            }
+            },
+            # ECG_PROCESSING_CONFIG — placeholder for future ECG processing settings.
+            # This section is intentionally empty and will be populated in the next
+            # ECG processing PR (e.g. filter strategy, R-peak detector options,
+            # rolling-window parameters, HR display smoothing).
+            "ECG_PROCESSING_CONFIG": {}
         }
         self.settings = self.load_settings()
 
