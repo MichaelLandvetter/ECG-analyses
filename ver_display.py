@@ -24,7 +24,7 @@ Legacy notes
 - The ``update_scope_panel``, ``clear_scope_panel``, ``update_wavelet_panel``,
   ``update_wavelet_stats``, and ``add_session_average`` methods are preserved as
   no-op stubs so callers in ``ver_main.py`` do not crash during the transition.
-  They can be removed once those call-sites are updated for the ECG path.
+  They can be removed once those call sites are updated for the ECG path.
 - See ``docs/module_migration_status.md`` for the full lifecycle plan.
 """
 
@@ -97,7 +97,7 @@ class VERDisplayWidget(QWidget):
         self._last_scroll_draw = 0.0
         self._scroll_min_interval = 1.0 / max(1, DISPLAY_CONFIG.get("scroll_max_fps", 30))
         self._raw_focused = False
-        # Legacy flag kept so inherited call-sites in ver_main.py do not crash.
+        # Legacy flag kept so inherited call sites in ver_main.py do not crash.
         self._scope_focused = False
 
         # When True, update_scroll_panel and add_r_peaks still buffer data but
@@ -178,7 +178,7 @@ class VERDisplayWidget(QWidget):
     def toggle_scope_focus(self) -> None:
         """No-op stub — Scope View has been removed from the ECG layout.
 
-        Kept so inherited call-sites in ``ver_main.py`` do not raise
+        Kept so inherited call sites in ``ver_main.py`` do not raise
         ``AttributeError`` during the transition.
         """
 
@@ -355,9 +355,9 @@ class VERDisplayWidget(QWidget):
 
     # ------------------------------------------------------------------
     # No-op stubs for removed VER panels
-    # These are preserved so call-sites in ver_main.py / _handle_single_sample
+    # These are preserved so call sites in ver_main.py / _handle_single_sample
     # and _record_session do not raise AttributeError during the transition.
-    # Remove these stubs once the call-sites are updated for the ECG path.
+    # Remove these stubs once the call sites are updated for the ECG path.
     # ------------------------------------------------------------------
 
     def update_scope_panel(self, *args, **kwargs) -> None:

@@ -645,6 +645,9 @@ class VERMainWindow(QMainWindow):
         saved_mode = self._ecg_proc_cfg.get("filter_mode", ECG_FILTER_DEFAULT)
         if saved_mode in ECG_FILTER_MODES:
             self.filter_mode_combo.setCurrentText(saved_mode)
+        else:
+            # Saved value unrecognised; fall back to the built-in default explicitly
+            self.filter_mode_combo.setCurrentText(ECG_FILTER_DEFAULT)
         self.filter_mode_combo.setToolTip(
             "Filter strategy used for ECG cleaning and R-peak detection.\n"
             "The display trace always uses the Butterworth causal filter for\n"
@@ -791,6 +794,9 @@ class VERMainWindow(QMainWindow):
         saved_det = self._ecg_proc_cfg.get("detector_method", ECG_DETECTOR_DEFAULT)
         if saved_det in ECG_DETECTOR_METHODS:
             self.detector_combo.setCurrentText(saved_det)
+        else:
+            # Saved value unrecognised; fall back to the built-in default explicitly
+            self.detector_combo.setCurrentText(ECG_DETECTOR_DEFAULT)
         self.detector_combo.setToolTip(
             "NeuroKit2 peak-detection method.  'neurokit' (default) is the best\n"
             "general-purpose choice.  Other methods may suit noisier signals."

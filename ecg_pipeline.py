@@ -250,9 +250,11 @@ class ECGCleaningFilter:
         high = max(low + 1e-4, min(high, 0.9999))
         try:
             sos = butter(order, [low, high], btype="band", output="sos")
-            # Minimum safe padlen for sosfiltfilt is 3 × filter-state length.
-            # If the signal is shorter than that minimum, skip zero-phase and
-            # fall back to a simple causal sosfilt to avoid edge artefacts.
+            # sosfiltfilt requires padlen < signal length.  The minimum safe padlen
+            # is 3 × (2 * order + 1), which is the SOS filter-state length (two
+            # states per section × order sections) multiplied by 3 for edge stability.
+            # If the signal is shorter than that, fall back to causal sosfilt to avoid
+            # edge artefacts from zero-padding.
             min_padlen = 3 * (2 * order + 1)
             centered = signal - np.mean(signal)
             if signal.size <= min_padlen:
@@ -509,8 +511,11 @@ class ECGRollingProcessor:
 
         # Compute HR for the new peaks, including one predecessor peak when
         # available so the first RR interval can be computed.
-        # Use max(0, ...) to avoid a negative start index when confirmed is the
-        # very first batch of peaks (no predecessor exists yet).
+        # `len(_all_peak_global) - len(confirmed) - 1` is the index of the
+        # predecessor peak.  When _all_peak_global has no predecessor (e.g. on
+        # the very first detection pass, or when confirmed covers all stored
+        # peaks), this expression is negative; max(0, ...) clamps to 0 so the
+        # slice falls back to the beginning of the list.
         start_idx = max(0, len(self._all_peak_global) - len(confirmed) - 1)
         hr_times, hr_bpm = _peaks_to_hr(
             self._all_peak_global[start_idx:],
