@@ -51,6 +51,16 @@ from PyQt6.QtWidgets import (
 
 # --- ECG-path modules ---
 from ecg_loader import ECGFileLoader
+from ecg_pipeline import (
+    ECGRollingProcessor,
+    ECGOfflineProcessor,
+    ECG_FILTER_MODES,
+    ECG_FILTER_DEFAULT,
+    ECG_DETECTOR_METHODS,
+    ECG_DETECTOR_DEFAULT,
+    ECG_FILTER_BUTTERWORTH,
+)
+from ecg_config import ECG_PROCESSING_CONFIG
 
 # --- Generic infrastructure (keep for ECG) ---
 from ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
@@ -505,12 +515,59 @@ class VERMainWindow(QMainWindow):
         self.session_artifact_exclusion_thresholds = []
         self._scope_panel_session = None
 
+        # --- ECG processing config (loaded from JSON, updated by settings tab) ---
+        self._ecg_proc_cfg = dict(ECG_PROCESSING_CONFIG)
+
         self.bandpass = BandpassFilter()
         self.scope = ECGScopeProcessor(self.bandpass)
+
+        # ECG rolling processor for streaming / 1× / 10× file replay
+        self._ecg_rolling = self._build_ecg_rolling_processor()
+
+        # Offline batch processor (max-speed mode)
+        self._ecg_offline = self._build_ecg_offline_processor()
+
+        # Buffer to collect raw ECG samples during max-speed replay.
+        # Filled in _handle_single_sample when _is_max_speed() is True;
+        # processed in _handle_eof to produce the final analysis results.
+        self._max_speed_raw_buffer: list[float] = []
 
         self._build_ui()
         self._sync_artifact_settings_from_ui()
         self._build_menu()
+
+    def _build_ecg_rolling_processor(self) -> ECGRollingProcessor:
+        """Construct a fresh ECGRollingProcessor from the current processing config."""
+        cfg = self._ecg_proc_cfg
+        return ECGRollingProcessor(
+            sample_rate=float(ACQ_CONFIG.get("sample_rate", 250)),
+            window_s=float(cfg.get("rolling_window_s", 5.0)),
+            detection_interval_s=float(cfg.get("detection_interval_s", 0.2)),
+            boundary_guard_s=float(cfg.get("boundary_guard_s", 0.5)),
+            filter_mode=cfg.get("filter_mode", ECG_FILTER_DEFAULT),
+            lowcut_hz=float(cfg.get("lowcut_hz", 0.5)),
+            highcut_hz=float(cfg.get("highcut_hz", 40.0)),
+            filter_order=int(cfg.get("filter_order", 4)),
+            notch_hz=float(cfg.get("notch_hz", 50.0)),
+            detector_method=cfg.get("detector_method", ECG_DETECTOR_DEFAULT),
+        )
+
+    def _build_ecg_offline_processor(self) -> ECGOfflineProcessor:
+        """Construct a fresh ECGOfflineProcessor from the current processing config."""
+        cfg = self._ecg_proc_cfg
+        return ECGOfflineProcessor(
+            sample_rate=float(ACQ_CONFIG.get("sample_rate", 250)),
+            filter_mode=cfg.get("filter_mode", ECG_FILTER_DEFAULT),
+            lowcut_hz=float(cfg.get("lowcut_hz", 0.5)),
+            highcut_hz=float(cfg.get("highcut_hz", 40.0)),
+            filter_order=int(cfg.get("filter_order", 4)),
+            notch_hz=float(cfg.get("notch_hz", 50.0)),
+            detector_method=cfg.get("detector_method", ECG_DETECTOR_DEFAULT),
+        )
+
+    def _is_max_speed(self) -> bool:
+        """Return True when the speed combo is set to maximum speed."""
+        return "Maximum" in self.speed_combo.currentText()
 
     def _selected_species_value(self) -> str:
         """Legacy stub — species combo removed from ECG path; returns empty string."""
@@ -576,10 +633,26 @@ class VERMainWindow(QMainWindow):
         # --- Filter Widgets (ECG bandpass only) ---
         self.low_spin = QSpinBox()
         self.low_spin.setRange(1, 120)
-        self.low_spin.setValue(int(FILTER_CONFIG["lowcut_hz"]))
+        # _ecg_proc_cfg is pre-populated with defaults from ECG_PROCESSING_CONFIG
+        self.low_spin.setValue(int(self._ecg_proc_cfg["lowcut_hz"]))
         self.high_spin = QSpinBox()
         self.high_spin.setRange(2, 124)
-        self.high_spin.setValue(int(FILTER_CONFIG["highcut_hz"]))
+        self.high_spin.setValue(int(self._ecg_proc_cfg["highcut_hz"]))
+
+        # Filter mode dropdown — selects the cleaning strategy for peak detection
+        self.filter_mode_combo = QComboBox()
+        self.filter_mode_combo.addItems(ECG_FILTER_MODES)
+        saved_mode = self._ecg_proc_cfg.get("filter_mode", ECG_FILTER_DEFAULT)
+        if saved_mode in ECG_FILTER_MODES:
+            self.filter_mode_combo.setCurrentText(saved_mode)
+        else:
+            # Saved value unrecognised; fall back to the built-in default explicitly
+            self.filter_mode_combo.setCurrentText(ECG_FILTER_DEFAULT)
+        self.filter_mode_combo.setToolTip(
+            "Filter strategy used for ECG cleaning and R-peak detection.\n"
+            "The display trace always uses the Butterworth causal filter for\n"
+            "low-latency scrolling; the selected mode applies to peak detection."
+        )
 
         apply_filter_btn = QPushButton("Apply Filter")
         apply_filter_btn.clicked.connect(self._apply_filter_settings)
@@ -642,9 +715,10 @@ class VERMainWindow(QMainWindow):
         group2.setLayout(layout2)
         top_bar.addWidget(group2)
 
-        # 3. FILTER SETTINGS GROUP — ECG bandpass only
+        # 3. FILTER SETTINGS GROUP — ECG bandpass + selectable filter mode
         group3 = QGroupBox("3. ECG Filter Settings")
         layout3 = QFormLayout()
+        layout3.addRow("Filter mode:", self.filter_mode_combo)
         layout3.addRow("Low cut (Hz):", self.low_spin)
         layout3.addRow("High cut (Hz):", self.high_spin)
         layout3.addRow(apply_filter_btn)
@@ -702,30 +776,100 @@ class VERMainWindow(QMainWindow):
         main_layout.addWidget(self.display)
         self.tabs.addTab(self.main_tab, "Analysis View")
 
-        # 3. ECG Processing Settings tab — placeholder for future ECG variables
-        # The two VER-specific settings tabs (Analysis Settings with epoch timing
-        # and Signal Classifier Settings) have been removed from the ECG UI path.
-        # This tab is intentionally mostly empty and is reserved for future ECG
-        # processing parameters (e.g. filter strategy, R-peak detector options,
-        # rolling-window length) that will be added in the next ECG processing PR.
-        # Settings will be persisted to JSON via SettingsManager when added.
+        # 3. ECG Processing Settings tab — populated with actual ECG processing options.
+        # Settings are persisted to JSON via SettingsManager (key: ECG_PROCESSING_CONFIG).
         self.ecg_settings_tab = QWidget()
         ecg_settings_layout = QVBoxLayout(self.ecg_settings_tab)
-        ecg_placeholder_label = QLabel(
-            "<b>ECG Processing Settings</b><br><br>"
-            "This tab is a placeholder for future ECG processing configuration.<br><br>"
-            "Planned settings (next PR):<br>"
-            "• Filter strategy (Butterworth / zero-phase IIR/FIR / notch)<br>"
-            "• R-peak detector selection<br>"
-            "• Rolling-window length and overlap<br>"
-            "• Heart rate display smoothing<br><br>"
-            "<i>No VER-specific settings are shown here.  "
-            "Flash-trigger epoch and classifier settings have been removed.</i>"
+
+        # --- Header ---
+        header_label = QLabel("<b>ECG Processing Settings</b>")
+        header_label.setStyleSheet("font-size: 13px; margin-bottom: 4px;")
+        ecg_settings_layout.addWidget(header_label)
+
+        # --- Detector group ---
+        det_group = QGroupBox("R-peak Detector")
+        det_form = QFormLayout(det_group)
+        self.detector_combo = QComboBox()
+        self.detector_combo.addItems(ECG_DETECTOR_METHODS)
+        saved_det = self._ecg_proc_cfg.get("detector_method", ECG_DETECTOR_DEFAULT)
+        if saved_det in ECG_DETECTOR_METHODS:
+            self.detector_combo.setCurrentText(saved_det)
+        else:
+            # Saved value unrecognised; fall back to the built-in default explicitly
+            self.detector_combo.setCurrentText(ECG_DETECTOR_DEFAULT)
+        self.detector_combo.setToolTip(
+            "NeuroKit2 peak-detection method.  'neurokit' (default) is the best\n"
+            "general-purpose choice.  Other methods may suit noisier signals."
         )
-        ecg_placeholder_label.setWordWrap(True)
-        ecg_placeholder_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        ecg_settings_layout.addWidget(ecg_placeholder_label)
+        det_form.addRow("Method:", self.detector_combo)
+        ecg_settings_layout.addWidget(det_group)
+
+        # --- Rolling window group ---
+        win_group = QGroupBox("Rolling Window (streaming / 1× / 10× replay)")
+        win_form = QFormLayout(win_group)
+
+        self.rolling_window_spin = QDoubleSpinBox()
+        self.rolling_window_spin.setRange(2.0, 30.0)
+        self.rolling_window_spin.setSingleStep(0.5)
+        self.rolling_window_spin.setDecimals(1)
+        self.rolling_window_spin.setSuffix(" s")
+        self.rolling_window_spin.setValue(float(self._ecg_proc_cfg.get("rolling_window_s", 5.0)))
+        self.rolling_window_spin.setToolTip("Length of the rolling buffer used for peak detection.")
+        win_form.addRow("Window length:", self.rolling_window_spin)
+
+        self.det_interval_spin = QDoubleSpinBox()
+        self.det_interval_spin.setRange(0.05, 2.0)
+        self.det_interval_spin.setSingleStep(0.05)
+        self.det_interval_spin.setDecimals(2)
+        self.det_interval_spin.setSuffix(" s")
+        self.det_interval_spin.setValue(float(self._ecg_proc_cfg.get("detection_interval_s", 0.2)))
+        self.det_interval_spin.setToolTip("How often peak detection is run on the rolling buffer.")
+        win_form.addRow("Detection interval:", self.det_interval_spin)
+
+        self.boundary_guard_spin = QDoubleSpinBox()
+        self.boundary_guard_spin.setRange(0.1, 2.0)
+        self.boundary_guard_spin.setSingleStep(0.1)
+        self.boundary_guard_spin.setDecimals(1)
+        self.boundary_guard_spin.setSuffix(" s")
+        self.boundary_guard_spin.setValue(float(self._ecg_proc_cfg.get("boundary_guard_s", 0.5)))
+        self.boundary_guard_spin.setToolTip(
+            "Peaks within this distance of the right edge of the buffer are\n"
+            "held back to avoid reporting incomplete QRS complexes."
+        )
+        win_form.addRow("Boundary guard:", self.boundary_guard_spin)
+        ecg_settings_layout.addWidget(win_group)
+
+        # --- Notch filter group ---
+        notch_group = QGroupBox("Power-line Notch (Zero-phase IIR + Notch mode)")
+        notch_form = QFormLayout(notch_group)
+        self.notch_spin = QDoubleSpinBox()
+        self.notch_spin.setRange(45.0, 65.0)
+        self.notch_spin.setSingleStep(10.0)
+        self.notch_spin.setDecimals(0)
+        self.notch_spin.setSuffix(" Hz")
+        self.notch_spin.setValue(float(self._ecg_proc_cfg.get("notch_hz", 50.0)))
+        self.notch_spin.setToolTip("50 Hz (Europe) or 60 Hz (North America).")
+        notch_form.addRow("Notch frequency:", self.notch_spin)
+        ecg_settings_layout.addWidget(notch_group)
+
+        # --- Extension points note ---
+        note_label = QLabel(
+            "<small><i>Deferred features (future PRs):<br>"
+            "• ECG delineation (P/Q/S/T waves) via nk.ecg_delineate<br>"
+            "• Signal quality index via nk.ecg_quality<br>"
+            "• HRV metrics (RMSSD, SDNN)<br>"
+            "• Arrhythmia classification</i></small>"
+        )
+        note_label.setWordWrap(True)
+        note_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        ecg_settings_layout.addWidget(note_label)
+
+        # --- Save / Apply button ---
+        save_settings_btn = QPushButton("Save ECG Processing Settings")
+        save_settings_btn.clicked.connect(self._save_ecg_processing_settings)
+        ecg_settings_layout.addWidget(save_settings_btn)
         ecg_settings_layout.addStretch()
+
         self.tabs.addTab(self.ecg_settings_tab, "ECG Processing Settings")
         
         self.setCentralWidget(central)
@@ -974,6 +1118,14 @@ class VERMainWindow(QMainWindow):
                 if resp == QMessageBox.StandardButton.Yes:
                     self.reset_all()
             
+            # Enable display-update suppression for maximum-speed mode.
+            # _handle_eof will clear this flag and flush the display after analysis.
+            if current_speed is None:
+                self.display.suppress_updates = True
+                self._max_speed_raw_buffer = []
+            else:
+                self.display.suppress_updates = False
+
             # Start a brand new worker with the current speed
             self._start_worker(current_speed)
             self.start_btn.setText("Running...")
@@ -1014,6 +1166,10 @@ class VERMainWindow(QMainWindow):
             "order": FILTER_CONFIG["order"],
         })
         self.scope = ECGScopeProcessor(self.bandpass)
+        # Reset ECG rolling processor with current settings
+        self._ecg_rolling = self._build_ecg_rolling_processor()
+        self._ecg_offline = self._build_ecg_offline_processor()
+        self._max_speed_raw_buffer = []
         self.session_wavelets = []
         self.session_wavelet_freqs = None
         self.session_labels = []
@@ -1073,13 +1229,51 @@ class VERMainWindow(QMainWindow):
     # can be edited manually in user_settings.json between sessions.
 
     def _apply_filter_settings(self):
+        """Apply the bandpass frequency settings and reconfigure the ECG processor."""
         low = float(self.low_spin.value())
         high = float(self.high_spin.value())
         if low >= high:
             QMessageBox.warning(self, "Invalid filter", "Low cut must be less than high cut.")
             return
+        # Update causal bandpass filter used for the scrolling display trace
         self.bandpass.redesign(low, high)
-        self.display.set_status(f"Filter updated: {low:.1f}-{high:.1f} Hz")
+        # Update ECG processing config and rebuild the rolling processor
+        self._ecg_proc_cfg["lowcut_hz"] = low
+        self._ecg_proc_cfg["highcut_hz"] = high
+        self._ecg_proc_cfg["filter_mode"] = self.filter_mode_combo.currentText()
+        self._ecg_rolling.reconfigure(
+            filter_mode=self._ecg_proc_cfg["filter_mode"],
+            lowcut_hz=low,
+            highcut_hz=high,
+        )
+        self._ecg_offline = self._build_ecg_offline_processor()
+        self.display.set_status(
+            f"Filter updated: {low:.1f}–{high:.1f} Hz  "
+            f"[{self._ecg_proc_cfg['filter_mode']}]"
+        )
+
+    def _save_ecg_processing_settings(self) -> None:
+        """Read values from the ECG Processing Settings tab and persist to JSON."""
+        self._ecg_proc_cfg["detector_method"] = self.detector_combo.currentText()
+        self._ecg_proc_cfg["rolling_window_s"] = float(self.rolling_window_spin.value())
+        self._ecg_proc_cfg["detection_interval_s"] = float(self.det_interval_spin.value())
+        self._ecg_proc_cfg["boundary_guard_s"] = float(self.boundary_guard_spin.value())
+        self._ecg_proc_cfg["notch_hz"] = float(self.notch_spin.value())
+        # Also sync the filter settings from the top bar
+        self._ecg_proc_cfg["filter_mode"] = self.filter_mode_combo.currentText()
+        self._ecg_proc_cfg["lowcut_hz"] = float(self.low_spin.value())
+        self._ecg_proc_cfg["highcut_hz"] = float(self.high_spin.value())
+
+        # Persist to JSON
+        self.settings_manager.settings["ECG_PROCESSING_CONFIG"] = dict(self._ecg_proc_cfg)
+        self.settings_manager.save_settings(self.settings_manager.settings)
+
+        # Rebuild processors with new config
+        self._ecg_rolling = self._build_ecg_rolling_processor()
+        self._ecg_offline = self._build_ecg_offline_processor()
+
+        self.display.set_status("ECG processing settings saved.")
+        log.info("ECG processing settings saved: %s", self._ecg_proc_cfg)
 
     def _handle_sample(self, row: np.ndarray):
         samples = np.asarray(row, dtype=float)
@@ -1090,24 +1284,54 @@ class VERMainWindow(QMainWindow):
             self._handle_single_sample(sample)
 
     def _handle_single_sample(self, sample: np.ndarray):
-        # sample format: [trigger, ecg_value]
-        # In the active ECG path, sample[0] (trigger) is always 0.0:
-        #   - ECGFileLoader yields [0.0, ecg] (no hardware trigger in plain files)
-        #   - SerialAcquisitionSource now yields [0.0, ecg] (flash trigger discarded)
-        # The trigger field is kept for interface compatibility with the inherited
-        # VER scope processor (ECGScopeProcessor, which inherits VERScopeProcessor).
-        # It will be replaced by R-peak-driven triggering when the ECG processing
-        # module is introduced in the next PR.
-        trigger = bool(sample[0])
+        """Process one ECG sample from the acquisition worker.
+
+        ECG path notes
+        --------------
+        * ``sample[0]`` (trigger) is always ``0.0`` in the active ECG path:
+          - ECGFileLoader yields ``[0.0, ecg]`` (no hardware trigger).
+          - SerialAcquisitionSource yields ``[0.0, ecg]`` (flash trigger discarded).
+        * The inherited VER scope processor (ECGScopeProcessor) is still called for
+          interface compatibility.  With trigger always False, it is a no-op — the
+          epoch_complete / session_complete branches never fire.
+        * ECG R-peak detection is now handled by :attr:`_ecg_rolling` (rolling window
+          processor) for 1× / 10× / streaming modes, and buffered into
+          :attr:`_max_speed_raw_buffer` for maximum-speed batch processing at EOF.
+        """
+        trigger = bool(sample[0])   # always False in ECG path
         ecg = float(sample[1])
-        filtered = self.bandpass.process_sample(ecg)
+        filtered = self.bandpass.process_sample(ecg)  # causal IIR for display trace
 
+        if self._is_max_speed():
+            # Maximum-speed mode: buffer raw ECG samples, suppress all display updates.
+            # The full batch is processed in _handle_eof after the file ends.
+            self._max_speed_raw_buffer.append(ecg)
+            # Still push to scroll buffer (without rendering) so the deque stays
+            # populated — flushed to screen after analysis completes.
+            self.display.update_scroll_panel(ecg, filtered)
+            return
+
+        # --- Streaming / 1× / 10× path: rolling R-peak detection ---
+
+        # Update the scrolling display (render rate limited by FPS timer)
+        self.display.update_scroll_panel(ecg, filtered)
+
+        # Run rolling detector; it returns results every detection_interval_s
+        rolling_result = self._ecg_rolling.add_sample(ecg)
+        if rolling_result is not None and rolling_result.new_peak_times_s:
+            self.display.add_r_peaks(
+                rolling_result.new_peak_times_s,
+                rolling_result.new_hr_times_s,
+                rolling_result.new_hr_bpm,
+            )
+
+        # Legacy VER scope path — kept for compatibility; trigger=False means no-op
         scope_result = self.scope.process_sample(trigger, ecg)
-        self.display.update_scroll_panel(ecg, filtered, scope_result["trigger_detected"])
+        current_session = scope_result["session_number"]
+        self._set_progress(current_session, scope_result["flash_count"], scope_result.get("flash_count_accepted"))
 
-        current_session = scope_result["session_number"] 
-        self._set_progress(current_session, scope_result["flash_count"], scope_result.get("flash_count_accepted")) 
-
+        # epoch_complete / session_complete are always False when trigger=0;
+        # kept so the code compiles and the display stubs are still called.
         if scope_result["epoch_complete"]:
             if self._scope_panel_session != current_session:
                 self.display.clear_scope_panel()
@@ -1155,9 +1379,75 @@ class VERMainWindow(QMainWindow):
             f"Block {session_number}/{EPOCH_CONFIG['num_sessions']} ({seconds_per_block}s) | {flash_text}"
         )
     def _handle_eof(self):
-            self.max_speed_warning.hide() # Force hide here
-            self.stop_acquisition()
-            
+        """Handle end-of-file for both normal and maximum-speed analysis.
+
+        For maximum-speed mode:
+        1. Process the collected raw buffer through ECGOfflineProcessor (batch).
+        2. Load the results into the display (R-peaks, HR trace).
+        3. Clear suppress_updates and call flush_display() for a single render.
+
+        For 1× / 10× / streaming modes:
+        The scroll display is already up to date; we just clean up and optionally
+        prompt for further action.
+        """
+        self.max_speed_warning.hide()
+        self.stop_acquisition()
+
+        # --- Maximum-speed offline batch analysis ---
+        if self._max_speed_raw_buffer:
+            raw_arr = np.array(self._max_speed_raw_buffer, dtype=float)
+            log.info(
+                "_handle_eof (max speed): processing %d samples offline …", len(raw_arr)
+            )
+            try:
+                self.display.set_status("Analyzing … (computing R-peaks and HR)")
+                # Allow Qt to repaint the status label before blocking computation
+                QApplication.processEvents()
+
+                offline_result = self._ecg_offline.process(raw_arr)
+                log.info(
+                    "Offline result: %d beats detected, mean HR = %s bpm",
+                    offline_result.beat_count,
+                    f"{offline_result.mean_hr_bpm:.1f}" if offline_result.mean_hr_bpm else "N/A",
+                )
+
+                # Populate display buffers with offline R-peaks
+                if offline_result.r_peak_times_s:
+                    self.display.add_r_peaks(
+                        offline_result.r_peak_times_s,
+                        offline_result.hr_times_s,
+                        offline_result.hr_bpm,
+                    )
+
+                # Replace the tachometer with the full-recording HR trace
+                if offline_result.hr_times_s:
+                    self.display.update_hr_full(
+                        offline_result.hr_times_s,
+                        offline_result.hr_bpm,
+                    )
+
+                # Build summary status message
+                mean_hr_txt = (
+                    f"{offline_result.mean_hr_bpm:.1f} bpm"
+                    if offline_result.mean_hr_bpm else "—"
+                )
+                status = (
+                    f"Analysis complete — {offline_result.beat_count} beats detected  |  "
+                    f"Mean HR: {mean_hr_txt}  |  "
+                    f"Duration: {offline_result.duration_s:.1f} s"
+                )
+            except Exception as exc:
+                log.exception("Offline ECG processing failed")
+                status = f"Analysis complete (offline processing error: {exc})"
+
+            # Clear suppression flag and flush display
+            self.display.suppress_updates = False
+            self.display.flush_display()
+            self.display.set_status(status)
+            self._max_speed_raw_buffer = []
+
+        else:
+            # 1× / 10× path — display is already up to date; just set status
             partial_session = self.scope.save_partial_session(EPOCH_CONFIG["flashes_per_session"] // 2)
             if partial_session is not None:
                 self._record_session(
@@ -1168,7 +1458,7 @@ class VERMainWindow(QMainWindow):
                     artifact_rejection_enabled=partial_session.get("artifact_rejection_enabled"),
                     artifact_exclusion_threshold=partial_session.get("artifact_exclusion_threshold"),
                 )
-                
+
             if self.scope.session_averages:
                 next_action = prompt_analysis_complete_action(self)
                 if should_proceed_to_human_validation(next_action):
@@ -1180,16 +1470,17 @@ class VERMainWindow(QMainWindow):
                     log.info("End-of-analysis dialog: validation canceled by user.")
             else:
                 next_action = None
-                
+
             self.display.set_status(
                 status_message_for_analysis_complete_action(
                     next_action,
                     has_session_averages=bool(self.scope.session_averages),
                 )
             )
-            self.start_btn.setText("Start")
-            self._shutdown_worker()
-            self.max_speed_warning.hide()
+
+        self.start_btn.setText("Start")
+        self._shutdown_worker()
+        self.max_speed_warning.hide()
 
     def _handle_worker_error(self, message: str):
         QMessageBox.critical(self, "Acquisition error", message)

@@ -1,10 +1,21 @@
 """PyQtGraph display components for live ECG signal visualization.
 
-ECG layout (step 9 migration)
--------------------------------
-Graph 1 (top):    Raw ECG + Filtered ECG scrolling view.
-Graph 2 (bottom): Heart-rate tachometer — R-peak interval view (placeholder;
-                  will show live BPM once ECG R-peak detection is implemented).
+ECG layout
+-----------
+Graph 1 (top):    Raw ECG + Filtered ECG scrolling view with R-peak markers.
+Graph 2 (bottom): Heart-rate tachometer driven by R-peak intervals.
+
+ECG processing integration (first ECG PR)
+------------------------------------------
+R-peak detection is now performed externally by :class:`ecg_pipeline.ECGRollingProcessor`
+(streaming / 1× / 10× modes) or :class:`ecg_pipeline.ECGOfflineProcessor` (maximum-speed
+batch mode).  Detected peaks are fed into the display via :meth:`add_r_peaks`.
+
+For **maximum-speed** file replay:
+- Set :attr:`suppress_updates` = ``True`` before starting.
+- :meth:`update_scroll_panel` will still buffer data but skip all graph renders.
+- After offline analysis completes, clear ``suppress_updates`` and call
+  :meth:`flush_display` to paint the final state in one pass.
 
 Legacy notes
 ------------
@@ -45,7 +56,7 @@ _MAX_RR_INTERVAL_S = 3.0
 
 _RAW_TITLE_NORMAL = "Raw ECG + Filtered ECG  \u00b7 double-click to enlarge"
 _RAW_TITLE_FOCUSED = "Raw ECG + Filtered ECG  \u00b7 double-click to restore"
-_TACHO_TITLE = "Heart Rate \u2013 R-peak tachometer (placeholder)"
+_TACHO_TITLE = "Heart Rate \u2013 R-peak tachometer"
 
 
 class _FocusableViewBox(pg.ViewBox):
@@ -86,8 +97,13 @@ class VERDisplayWidget(QWidget):
         self._last_scroll_draw = 0.0
         self._scroll_min_interval = 1.0 / max(1, DISPLAY_CONFIG.get("scroll_max_fps", 30))
         self._raw_focused = False
-        # Legacy flag kept so inherited call-sites in ver_main.py do not crash.
+        # Legacy flag kept so inherited call sites in ver_main.py do not crash.
         self._scope_focused = False
+
+        # When True, update_scroll_panel and add_r_peaks still buffer data but
+        # suppress all graph rendering.  Set True for maximum-speed file replay;
+        # call flush_display() after analysis completes to render the final state.
+        self.suppress_updates: bool = False
 
         layout = QVBoxLayout(self)
         self.status_label = QLabel("No data loaded")
@@ -162,11 +178,33 @@ class VERDisplayWidget(QWidget):
     def toggle_scope_focus(self) -> None:
         """No-op stub — Scope View has been removed from the ECG layout.
 
-        Kept so inherited call-sites in ``ver_main.py`` do not raise
+        Kept so inherited call sites in ``ver_main.py`` do not raise
         ``AttributeError`` during the transition.
         """
 
-    def update_scroll_panel(self, raw_sample: float, filtered_sample: float, trigger_detected: bool) -> None:
+    def update_scroll_panel(self, raw_sample: float, filtered_sample: float, trigger_detected: bool = False) -> None:
+        """Append one ECG sample to the scrolling buffers and render if due.
+
+        Parameters
+        ----------
+        raw_sample:
+            Unfiltered ECG sample value.
+        filtered_sample:
+            Bandpass-filtered ECG sample value (for the green overlay trace).
+        trigger_detected:
+            **Legacy path only.**  If ``True``, the current sample is treated
+            as an R-peak trigger and the HR computation runs inline here.
+            In the active ECG path this is always ``False``; R-peaks are
+            delivered via :meth:`add_r_peaks` from the ECG rolling processor.
+
+        Note
+        ----
+        When :attr:`suppress_updates` is ``True`` the buffers are still
+        updated (data is preserved) but no graph rendering is performed.
+        Call :meth:`flush_display` after clearing the flag to do a single
+        final render — this is the correct sequence for maximum-speed file
+        replay.
+        """
         t = self.sample_index / self.sample_rate
         self.sample_index += 1
 
@@ -175,16 +213,11 @@ class VERDisplayWidget(QWidget):
         self.filtered_buffer.append(float(filtered_sample))
 
         if trigger_detected:
-            # Record R-peak time and compute instantaneous HR from RR interval.
+            # Legacy path: R-peak from VER trigger (always 0 in ECG path).
+            # Kept for interface compatibility; active ECG path uses add_r_peaks().
             self.r_peak_times.append(t)
             if self._last_peak_time is not None:
                 rr_s = t - self._last_peak_time
-                # Physiological sanity range: RR 0.2–3.0 s → 20–300 BPM.
-                # Values outside this window are treated as missed/double detections
-                # and are silently dropped (no entry added to rr_times/rr_bpm).
-                # _last_peak_time is only updated when the interval is accepted so
-                # that a single spurious detection cannot corrupt the reference time
-                # for subsequent valid beats.
                 if _MIN_RR_INTERVAL_S < rr_s < _MAX_RR_INTERVAL_S:
                     bpm = 60.0 / rr_s
                     self.rr_times.append(t)
@@ -193,10 +226,64 @@ class VERDisplayWidget(QWidget):
             else:
                 self._last_peak_time = t
 
+        # Suppress all rendering when flag is set (maximum-speed mode).
+        if self.suppress_updates:
+            return
+
         now = time.perf_counter()
         if now - self._last_scroll_draw < self._scroll_min_interval:
             return
         self._last_scroll_draw = now
+
+        self._render_scroll()
+
+    def add_r_peaks(
+        self,
+        peak_times_s: list[float],
+        hr_times_s: list[float],
+        hr_bpm: list[float],
+    ) -> None:
+        """Add externally-detected R-peaks and HR estimates to the display buffers.
+
+        Called by the ECG rolling processor in the active ECG path.  This method
+        only updates the data structures; rendering happens on the next FPS tick
+        inside :meth:`update_scroll_panel` (or via :meth:`flush_display` for
+        maximum-speed mode).
+
+        Parameters
+        ----------
+        peak_times_s:
+            Timestamps (seconds since start) of newly confirmed R-peaks.
+        hr_times_s:
+            Timestamps for each new instantaneous HR estimate.
+        hr_bpm:
+            Instantaneous HR values in BPM, matching *hr_times_s*.
+        """
+        for t in peak_times_s:
+            self.r_peak_times.append(t)
+        for t, bpm in zip(hr_times_s, hr_bpm):
+            self.rr_times.append(t)
+            self.rr_bpm.append(bpm)
+
+    def flush_display(self) -> None:
+        """Force a single immediate render of all buffered data.
+
+        Use this after maximum-speed file analysis completes (i.e. after
+        clearing :attr:`suppress_updates`) to paint the final state of all
+        graphs without waiting for the next FPS tick.
+        """
+        self._last_scroll_draw = 0.0  # reset FPS timer so render is not skipped
+        self._render_scroll()
+
+    def _render_scroll(self) -> None:
+        """Render the current buffer contents to all graph panels.
+
+        This is the pure rendering portion of the scroll update, separated
+        so it can be called both from :meth:`update_scroll_panel` (FPS-limited)
+        and from :meth:`flush_display` (forced render at EOF).
+        """
+        if not self.time_buffer:
+            return
 
         x = np.asarray(self.time_buffer, dtype=float)
         y_raw = np.asarray(self.raw_buffer, dtype=float)
@@ -206,7 +293,7 @@ class VERDisplayWidget(QWidget):
         self.curve_filtered.setData(x, y_filt)
         self.plot_raw.setXRange(float(x[0]), float(x[-1]), padding=0.02)
 
-        # Draw R-peak (or trigger) markers on the raw panel
+        # Draw R-peak markers on the ECG trace panel
         if self.r_peak_times:
             if len(y_filt) > 0:
                 filt_max = float(np.max(y_filt))
@@ -229,8 +316,7 @@ class VERDisplayWidget(QWidget):
                 self.r_peak_scatter.setData(x=[], y=[])
 
         # Draw HR tachometer — filter rr_times/rr_bpm to the visible window.
-        # Deques are bounded to _MAX_PEAK_HISTORY entries so converting to arrays
-        # and filtering is bounded to O(_MAX_PEAK_HISTORY) regardless of recording length.
+        # Deques are bounded to _MAX_PEAK_HISTORY entries so this is O(N_peaks).
         if self.rr_times:
             rr_t = np.array(self.rr_times, dtype=float)
             rr_b = np.array(self.rr_bpm, dtype=float)
@@ -240,11 +326,38 @@ class VERDisplayWidget(QWidget):
             else:
                 self.curve_hr.setData([], [])
 
+    def update_hr_full(self, hr_times_s: list[float], hr_bpm: list[float]) -> None:
+        """Replace HR tachometer data with a complete set of HR values.
+
+        Used after maximum-speed offline analysis to display the full
+        HR trace without needing it to fit within the scroll window bounds.
+
+        Parameters
+        ----------
+        hr_times_s:
+            All HR estimate timestamps (seconds since start).
+        hr_bpm:
+            Corresponding instantaneous HR values (BPM).
+        """
+        self.rr_times.clear()
+        self.rr_bpm.clear()
+        for t, bpm in zip(hr_times_s, hr_bpm):
+            self.rr_times.append(t)
+            self.rr_bpm.append(bpm)
+
+        if hr_times_s and hr_bpm:
+            rr_t = np.array(hr_times_s, dtype=float)
+            rr_b = np.array(hr_bpm, dtype=float)
+            self.curve_hr.setData(rr_t, rr_b)
+            self.plot_tachometer.enableAutoRange(y=True)
+            # Reset tachometer X-axis to show the full recording
+            self.plot_tachometer.setXRange(float(rr_t[0]), float(rr_t[-1]), padding=0.02)
+
     # ------------------------------------------------------------------
     # No-op stubs for removed VER panels
-    # These are preserved so call-sites in ver_main.py / _handle_single_sample
+    # These are preserved so call sites in ver_main.py / _handle_single_sample
     # and _record_session do not raise AttributeError during the transition.
-    # Remove these stubs once the call-sites are updated for the ECG path.
+    # Remove these stubs once the call sites are updated for the ECG path.
     # ------------------------------------------------------------------
 
     def update_scope_panel(self, *args, **kwargs) -> None:
@@ -276,6 +389,7 @@ class VERDisplayWidget(QWidget):
         self._last_peak_time = None
         self.sample_index = 0
         self._last_scroll_draw = 0.0
+        self.suppress_updates = False  # always re-enable rendering on reset
         self.curve_raw.setData([], [])
         self.curve_filtered.setData([], [])
         self.r_peak_scatter.setData(x=[], y=[])
