@@ -657,7 +657,9 @@ class ECGOfflineProcessor:
                 result.hr_bpm = hr_bpm
                 result.beat_count = len(result.r_peak_indices)
                 result.mean_hr_bpm = float(np.mean(hr_bpm)) if hr_bpm else None
-                # Extract P/Q/S/T delineation indices from the signals DataFrame
+                # Extract P/Q/S/T delineation indices from the signals DataFrame.
+                # NeuroKit2 delineation columns are binary (1 = peak, 0 or NaN = no peak);
+                # fillna(0) correctly treats NaN (undetected) as 0 before the == 1 test.
                 for col, attr in [
                     ("ECG_P_Peaks", "p_peak_indices"),
                     ("ECG_Q_Peaks", "q_peak_indices"),

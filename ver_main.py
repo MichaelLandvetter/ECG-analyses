@@ -817,6 +817,10 @@ class VERMainWindow(QMainWindow):
         self.high_spin.setSingleStep(1.0)
         self.high_spin.setDecimals(1)
         self.high_spin.setValue(float(self._ecg_proc_cfg["highcut_hz"]))
+        # Ensure high-cut minimum tracks low-cut so the pair always stays valid
+        self.low_spin.valueChanged.connect(
+            lambda v: self.high_spin.setMinimum(round(v + 0.1, 1))
+        )
 
         # Filter mode dropdown — selects the cleaning strategy for peak detection
         self.filter_mode_combo = QComboBox()
