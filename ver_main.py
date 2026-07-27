@@ -60,7 +60,6 @@ from ver_filter import BandpassFilter
 from ver_logging import setup_logging
 from ver_wavelet import compute_wavelet_scalogram
 from ver_ml_logger import launch_ml_logger
-from ver_preflight import suggest_exclusion_from_file
 from ver_settings import SettingsManager
 from ver_analysis_flow import (
     BACK_TO_ANALYSIS,
@@ -847,37 +846,11 @@ class VERMainWindow(QMainWindow):
                 self.file_label.setText(f"Selected: {fallback.name}")
                 self.display.set_status(f"Loaded file: {fallback.name}")
 
-    def _suggest_exclusion(self):
-        # NOTE: This method is not connected to any UI element in the current ECG app.
-        # It is retained as a transitional utility for future use.
-        # The set_artifact_threshold widget was removed in the ECG cleanup PR;
-        # the current threshold is read from settings instead.
-        if not self.data_file:
-            QMessageBox.information(self, "Set Exclusion", "Please open a data file first.")
-            return
-
-        try:
-            suggestion = suggest_exclusion_from_file(
-                self.data_file,
-                epoch_config=dict(EPOCH_CONFIG),
-                bandpass_filter=self.bandpass,
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Set Exclusion", f"Failed to estimate exclusion threshold:\n{exc}")
-            return
-
-        current_threshold = float(
-            self.settings_manager.settings.get("EPOCH_CONFIG", {}).get("artifact_exclusion_uv", 0.01)
-        )
-        tuning_dialog = ExclusionTuningDialog(
-            suggestion,
-            current_threshold_uv=current_threshold,
-            parent=self,
-        )
-        if tuning_dialog.exec() == QDialog.DialogCode.Accepted:
-            applied_threshold = tuning_dialog.selected_threshold_uv()
-            self._apply_exclusion_threshold(applied_threshold)
-            self.display.set_status(f"Applied exclusion threshold: ±{applied_threshold:.4f} µV")
+    # _suggest_exclusion (VER-specific artifact threshold tuning dialog) has been
+    # removed: it was never connected to any ECG UI element and referenced the
+    # removed set_artifact_threshold widget.  ExclusionTuningDialog is kept in
+    # this file for now as a transitional artifact; it will be removed or replaced
+    # in a future PR when the ECG processing pipeline is introduced.
 
     def _restart_worker_with_file(self):
         self._shutdown_worker()
@@ -1122,9 +1095,9 @@ class VERMainWindow(QMainWindow):
         #   - ECGFileLoader yields [0.0, ecg] (no hardware trigger in plain files)
         #   - SerialAcquisitionSource now yields [0.0, ecg] (flash trigger discarded)
         # The trigger field is kept for interface compatibility with the inherited
-        # VER scope processor (ECGScopeProcessor → VERScopeProcessor).  It will
-        # be replaced by R-peak-driven triggering when the ECG processing module
-        # is introduced in the next PR.
+        # VER scope processor (ECGScopeProcessor, which inherits VERScopeProcessor).
+        # It will be replaced by R-peak-driven triggering when the ECG processing
+        # module is introduced in the next PR.
         trigger = bool(sample[0])
         eeg = float(sample[1])
         filtered = self.bandpass.process_sample(eeg)

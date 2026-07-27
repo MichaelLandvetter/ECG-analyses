@@ -154,7 +154,7 @@ class SerialAcquisitionSource:
         try:
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self._raw_log_path = Path(f"RAW_USB_ECG_{timestamp}.txt")
+            self._raw_log_path = Path(f"ECG_USB_Serial_{timestamp}.txt")
             self._raw_log_file = open(self._raw_log_path, "w")
             # Single-column comment header identifies the data and its origin.
             self._raw_log_file.write("# ECG raw samples — USB serial capture\n")
