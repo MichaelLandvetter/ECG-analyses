@@ -1099,11 +1099,11 @@ class VERMainWindow(QMainWindow):
         # It will be replaced by R-peak-driven triggering when the ECG processing
         # module is introduced in the next PR.
         trigger = bool(sample[0])
-        eeg = float(sample[1])
-        filtered = self.bandpass.process_sample(eeg)
+        ecg = float(sample[1])
+        filtered = self.bandpass.process_sample(ecg)
 
-        scope_result = self.scope.process_sample(trigger, eeg)
-        self.display.update_scroll_panel(eeg, filtered, scope_result["trigger_detected"])
+        scope_result = self.scope.process_sample(trigger, ecg)
+        self.display.update_scroll_panel(ecg, filtered, scope_result["trigger_detected"])
 
         current_session = scope_result["session_number"] 
         self._set_progress(current_session, scope_result["flash_count"], scope_result.get("flash_count_accepted")) 
