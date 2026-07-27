@@ -97,8 +97,8 @@ from ecg_scope import ECGScopeProcessor  # REPLACEMENT BOUNDARY (transitional pl
 
 log = logging.getLogger(__name__)
 ARTIFACT_THRESHOLD_MIN_UV = 0.0001
-_PRE_REPORT_BEAT_PRE_S = 0.25
-_PRE_REPORT_BEAT_POST_S = 0.45
+_PRE_REPORT_BEAT_BEFORE_S = 0.25
+_PRE_REPORT_BEAT_AFTER_S = 0.45
 _MIN_SAMPLES_FOR_PRE_REPORT = 50
 _FILTER_MODES_WITH_LOW_HIGH = {
     ECG_FILTER_BUTTERWORTH,
@@ -537,8 +537,8 @@ class ECGPreReportDialog(QDialog):
             )
 
         # Beat overlays centered on R-peaks (practical first version).
-        pre_n = int(round(_PRE_REPORT_BEAT_PRE_S * fs))
-        post_n = int(round(_PRE_REPORT_BEAT_POST_S * fs))
+        pre_n = int(round(_PRE_REPORT_BEAT_BEFORE_S * fs))
+        post_n = int(round(_PRE_REPORT_BEAT_AFTER_S * fs))
         beat_segments = []
         for idx in peak_idx.tolist():
             left = idx - pre_n
@@ -555,7 +555,7 @@ class ECGPreReportDialog(QDialog):
             mean_beat = np.mean(beats, axis=0)
             self.plot_beats.plot(beat_t_ms, mean_beat, pen=pg.mkPen((255, 220, 0), width=3))
             self._beats_info_label.setText(
-                f"Individual beats shown: {beats.shape[0]}  |  Mean beat overlay in yellow."
+                f"Individual beats shown: {beats.shape[0]}  |  Mean beat overlay in gold."
             )
         else:
             self._beats_info_label.setText(
@@ -661,8 +661,8 @@ class VERMainWindow(QMainWindow):
         # Offline batch processor (whole-file / pre-report processing)
         self._ecg_offline = self._build_ecg_offline_processor()
 
-        # Legacy buffer retained for compatibility with the inherited maximum-speed
-        # EOF path in _handle_eof (kept until that transitional branch is removed).
+        # TODO(ecg-transition): remove once inherited maximum-speed EOF branch in
+        # _handle_eof is retired from the codebase.
         self._max_speed_raw_buffer: list[float] = []
         # Full raw USB session capture used to generate post-stop pre-report review.
         self._captured_serial_raw: list[float] = []
@@ -1663,7 +1663,7 @@ class VERMainWindow(QMainWindow):
                 else:
                     rr = (idx - prev_idx) / fs
                     rr_s = f"{rr:.6f}"
-                    bpm = f"{(60.0 / rr):.6f}" if rr > 0 else ""
+                    bpm = f"{(60.0 / rr):.2f}" if rr > 0 else ""
                 writer.writerow([beat_no, idx, f"{t_s:.6f}", rr_s, bpm])
                 prev_idx = idx
 
