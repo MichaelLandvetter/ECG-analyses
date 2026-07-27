@@ -57,7 +57,9 @@ from ecg_pipeline import (
     ECGOfflineProcessor,
     ECG_FILTER_MODES,
     ECG_FILTER_DEFAULT,
-    ECG_FILTER_NEUROKIT2,
+    ECG_FILTER_BUTTERWORTH,
+    ECG_FILTER_ZEROPHASE_IIR,
+    ECG_FILTER_IIR_NOTCH,
     ECG_DETECTOR_METHODS,
     ECG_DETECTOR_DEFAULT,
 )
@@ -97,6 +99,12 @@ log = logging.getLogger(__name__)
 ARTIFACT_THRESHOLD_MIN_UV = 0.0001
 _PRE_REPORT_BEAT_PRE_S = 0.25
 _PRE_REPORT_BEAT_POST_S = 0.45
+_MIN_SAMPLES_FOR_PRE_REPORT = 50
+_FILTER_MODES_WITH_LOW_HIGH = {
+    ECG_FILTER_BUTTERWORTH,
+    ECG_FILTER_ZEROPHASE_IIR,
+    ECG_FILTER_IIR_NOTCH,
+}
 # NOTE: PEAK_DETECTION_MODE_OPTIONS (VER-specific classifier peak mode labels)
 # removed along with ClassifierSettingsTab in the ECG cleanup PR.
 
@@ -1035,7 +1043,7 @@ class VERMainWindow(QMainWindow):
 
     def _filter_mode_uses_low_high(self, mode: str) -> bool:
         """Return True when low/high cut settings are active for *mode*."""
-        return mode != ECG_FILTER_NEUROKIT2
+        return mode in _FILTER_MODES_WITH_LOW_HIGH
 
     def _on_filter_mode_changed(self, mode: str) -> None:
         uses_low_high = self._filter_mode_uses_low_high(mode)
@@ -1555,7 +1563,7 @@ class VERMainWindow(QMainWindow):
     def _build_serial_pre_report(self) -> bool:
         """Build and open a pre-report from captured USB serial samples."""
         raw_signal = np.asarray(self._captured_serial_raw, dtype=float)
-        if raw_signal.size < 50:
+        if raw_signal.size < _MIN_SAMPLES_FOR_PRE_REPORT:
             QMessageBox.information(
                 self,
                 "Not enough data",
@@ -1624,10 +1632,10 @@ class VERMainWindow(QMainWindow):
 
         time_s = np.arange(raw.size, dtype=float) / fs
         hr_per_sample = np.full(raw.size, np.nan, dtype=float)
-        for t_s, bpm in zip(hr_times, hr_bpm):
-            i = int(round(t_s * fs))
-            if 0 <= i < hr_per_sample.size:
-                hr_per_sample[i] = float(bpm)
+        if hr_times.size and hr_bpm.size:
+            indices = np.round(hr_times * fs).astype(int)
+            valid_mask = (indices >= 0) & (indices < raw.size)
+            hr_per_sample[indices[valid_mask]] = hr_bpm[valid_mask]
 
         with continuous_path.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.writer(fh)
