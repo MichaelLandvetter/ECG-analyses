@@ -154,10 +154,10 @@ class SerialAcquisitionSource:
         try:
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self._raw_log_path = Path(f"ECG_USB_Serial_{timestamp}.txt")
+            self._raw_log_path = Path(f"ECG_Serial_{timestamp}.txt")
             self._raw_log_file = open(self._raw_log_path, "w")
             # Single-column comment header identifies the data and its origin.
-            self._raw_log_file.write("# ECG raw samples — USB serial capture\n")
+            self._raw_log_file.write("# ECG raw samples - USB serial capture\n")
             self._raw_log_file.write(f"# Timestamp: {timestamp}  Port: {self.port}  Baud: {self.baud_rate}\n")
         except Exception as e:
             print(f"Warning: Could not start raw ECG data logger: {e}")
