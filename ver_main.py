@@ -65,6 +65,7 @@ from ecg_pipeline import (
     ECG_DETECTOR_DEFAULT,
 )
 from ecg_config import ECG_PROCESSING_CONFIG
+from ecg_extended_report import save_extended_nk_summary_csv
 
 # --- Generic infrastructure (keep for ECG) ---
 from ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
@@ -1903,10 +1904,23 @@ class VERMainWindow(QMainWindow):
                 writer.writerow([beat_no, idx, f"{t_s:.6f}", rr_s, bpm])
                 prev_idx = idx
 
+        # --- Third CSV: extended single-row NeuroKit2 summary ---
+        # Contains HRV (time/frequency/nonlinear), rate stats, and morphology
+        # metrics.  Partial failures are handled gracefully inside the function.
+        extended_path = out_dir / f"{prefix}_extended_nk_summary.csv"
+        try:
+            save_extended_nk_summary_csv(report_data, extended_path)
+        except Exception as exc:
+            log.warning("Extended NeuroKit2 summary CSV could not be written: %s", exc)
+            extended_path = None  # type: ignore[assignment]
+
+        saved_names = [continuous_path.name, beat_path.name]
+        if extended_path is not None:
+            saved_names.append(extended_path.name)
         QMessageBox.information(
             self,
             "Reports saved",
-            f"Saved CSV reports:\n{continuous_path.name}\n{beat_path.name}\n\nFolder:\n{out_dir}",
+            f"Saved CSV reports:\n" + "\n".join(saved_names) + f"\n\nFolder:\n{out_dir}",
         )
         self.display.set_status(f"Saved pre-report CSVs to {out_dir}")
 
