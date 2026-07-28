@@ -33,20 +33,20 @@ import numpy as np
 
 # ---------------------------------------------------------------------------
 # Physiological search-window constants for beat-by-beat wave matching
-# (all values are in seconds relative to each R-peak)
+# (all values are in seconds, measured from each R-peak)
 # ---------------------------------------------------------------------------
 # P wave: expected 300 ms to 50 ms BEFORE the R-peak
-_P_SEARCH_LO_S: float = 0.30
-_P_SEARCH_HI_S: float = 0.05
+_P_SEARCH_FAR_S: float = 0.30   # far (earliest) edge of search window
+_P_SEARCH_NEAR_S: float = 0.05  # near (latest) edge of search window
 # Q wave: expected 100 ms to 5 ms BEFORE the R-peak
-_Q_SEARCH_LO_S: float = 0.10
-_Q_SEARCH_HI_S: float = 0.005
+_Q_SEARCH_FAR_S: float = 0.10
+_Q_SEARCH_NEAR_S: float = 0.005
 # S wave: expected 5 ms to 120 ms AFTER the R-peak
-_S_SEARCH_LO_S: float = 0.005
-_S_SEARCH_HI_S: float = 0.12
+_S_SEARCH_NEAR_S: float = 0.005
+_S_SEARCH_FAR_S: float = 0.12
 # T wave: expected 50 ms to 500 ms AFTER the R-peak
-_T_SEARCH_LO_S: float = 0.05
-_T_SEARCH_HI_S: float = 0.50
+_T_SEARCH_NEAR_S: float = 0.05
+_T_SEARCH_FAR_S: float = 0.50
 
 log = logging.getLogger(__name__)
 
@@ -172,6 +172,38 @@ def compute_extended_nk_metrics(report_data: dict) -> dict[str, Any]:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _find_nearest_wave(
+    wave_idx: np.ndarray,
+    r: int,
+    window_start: int,
+    window_end: int,
+) -> int | None:
+    """Return the sample index of the nearest wave peak to *r* within a window.
+
+    Parameters
+    ----------
+    wave_idx:
+        Array of sample indices for a wave type (P / Q / S / T).
+    r:
+        R-peak sample index (the reference point).
+    window_start, window_end:
+        Inclusive sample-index bounds of the search window (absolute indices,
+        already offset from *r*).  ``window_start`` must be ≤ ``window_end``.
+
+    Returns
+    -------
+    int or None
+        Sample index of the nearest matching peak, or ``None`` if no peak
+        falls within the window.
+    """
+    if wave_idx.size == 0:
+        return None
+    in_win = wave_idx[(wave_idx >= window_start) & (wave_idx <= window_end)]
+    if in_win.size == 0:
+        return None
+    return int(in_win[np.argmin(np.abs(in_win - r))])
+
+
 def _add_morphology_metrics(
     row: dict[str, Any],
     report_data: dict,
@@ -197,7 +229,8 @@ def _add_morphology_metrics(
     ECG_QT_Interval_Mean
         Mean Q-peak → T-peak duration (ms).
     ECG_QTc_Mean
-        Bazett-corrected mean QT (QT_ms / sqrt(RR_s)) in ms.
+        Bazett-corrected mean QT (QT_ms / sqrt(RR_s)) in ms, using the RR
+        interval of the beat that contains the QT measurement (following RR).
     ECG_P_Duration_Mean, ECG_T_Duration_Mean
         Set to ``""``; onset/offset positions are not stored by the current
         pipeline and cannot be computed from peaks alone.
@@ -227,15 +260,14 @@ def _add_morphology_metrics(
         return
 
     # Physiological search windows relative to each R-peak (in samples).
-    # Variables are named as distances, then applied as signed offsets below.
-    _p_far  = int(round(_P_SEARCH_LO_S * fs))  # P far edge: 300 ms before R
-    _p_near = int(round(_P_SEARCH_HI_S * fs))  # P near edge: 50 ms before R
-    _q_far  = int(round(_Q_SEARCH_LO_S * fs))  # Q far edge: 100 ms before R
-    _q_near = int(round(_Q_SEARCH_HI_S * fs))  # Q near edge: 5 ms before R
-    _s_near = int(round(_S_SEARCH_LO_S * fs))  # S near edge: 5 ms after R
-    _s_far  = int(round(_S_SEARCH_HI_S * fs))  # S far edge: 120 ms after R
-    _t_near = int(round(_T_SEARCH_LO_S * fs))  # T near edge: 50 ms after R
-    _t_far  = int(round(_T_SEARCH_HI_S * fs))  # T far edge: 500 ms after R
+    _p_far  = int(round(_P_SEARCH_FAR_S  * fs))  # P far edge: 300 ms before R
+    _p_near = int(round(_P_SEARCH_NEAR_S * fs))  # P near edge: 50 ms before R
+    _q_far  = int(round(_Q_SEARCH_FAR_S  * fs))  # Q far edge: 100 ms before R
+    _q_near = int(round(_Q_SEARCH_NEAR_S * fs))  # Q near edge: 5 ms before R
+    _s_near = int(round(_S_SEARCH_NEAR_S * fs))  # S near edge: 5 ms after R
+    _s_far  = int(round(_S_SEARCH_FAR_S  * fs))  # S far edge: 120 ms after R
+    _t_near = int(round(_T_SEARCH_NEAR_S * fs))  # T near edge: 50 ms after R
+    _t_far  = int(round(_T_SEARCH_FAR_S  * fs))  # T far edge: 500 ms after R
 
     try:
         pr_ms: list[float] = []
@@ -244,42 +276,34 @@ def _add_morphology_metrics(
         qtc_ms: list[float] = []
 
         for i, r in enumerate(r_peaks.tolist()):
-            # RR interval needed for Bazett QTc (use preceding beat's RR)
-            rr_s: float | None = (r - r_peaks[i - 1]) / fs if i > 0 else None
+            # RR interval for Bazett QTc: use the RR of the beat containing
+            # the QT measurement (following RR = next R minus current R).
+            rr_s: float | None = (
+                (r_peaks[i + 1] - r) / fs if i < len(r_peaks) - 1 else None
+            )
 
             # --- PR interval: nearest P peak in window [r-300ms, r-50ms] ---
-            if p_idx.size:
-                in_win = p_idx[(p_idx >= r - _p_far) & (p_idx <= r - _p_near)]
-                if in_win.size:
-                    nearest_p = int(in_win[np.argmin(np.abs(in_win - r))])
-                    pr_ms.append((r - nearest_p) * 1000.0 / fs)
+            nearest_p = _find_nearest_wave(p_idx, r, r - _p_far, r - _p_near)
+            if nearest_p is not None:
+                pr_ms.append((r - nearest_p) * 1000.0 / fs)
 
-            # --- QRS and QT: need matched Q in window [r-100ms, r-5ms] ---
-            nearest_q: int | None = None
-            if q_idx.size:
-                in_win_q = q_idx[(q_idx >= r - _q_far) & (q_idx <= r - _q_near)]
-                if in_win_q.size:
-                    nearest_q = int(in_win_q[np.argmin(np.abs(in_win_q - r))])
-
-            # QRS duration: Q → S where S is in [r+5ms, r+120ms]
-            if nearest_q is not None and s_idx.size:
-                in_win_s = s_idx[(s_idx >= r + _s_near) & (s_idx <= r + _s_far)]
-                if in_win_s.size:
-                    nearest_s = int(in_win_s[np.argmin(np.abs(in_win_s - r))])
+            # --- QRS: Q in [r-100ms, r-5ms] matched to S in [r+5ms, r+120ms] ---
+            nearest_q = _find_nearest_wave(q_idx, r, r - _q_far, r - _q_near)
+            if nearest_q is not None:
+                nearest_s = _find_nearest_wave(s_idx, r, r + _s_near, r + _s_far)
+                if nearest_s is not None:
                     dur = (nearest_s - nearest_q) * 1000.0 / fs
                     if dur > 0:
                         qrs_ms.append(dur)
 
-            # QT interval: Q → T where T is in [r+50ms, r+500ms]
-            if nearest_q is not None and t_idx.size:
-                in_win_t = t_idx[(t_idx >= r + _t_near) & (t_idx <= r + _t_far)]
-                if in_win_t.size:
-                    nearest_t = int(in_win_t[np.argmin(np.abs(in_win_t - r))])
+                # --- QT interval: Q → T where T is in [r+50ms, r+500ms] ---
+                nearest_t = _find_nearest_wave(t_idx, r, r + _t_near, r + _t_far)
+                if nearest_t is not None:
                     dur = (nearest_t - nearest_q) * 1000.0 / fs
                     if dur > 0:
                         qt_ms.append(dur)
                         if rr_s and rr_s > 0:
-                            # Bazett's formula: QTc = QT_ms / sqrt(RR_s)
+                            # Bazett's formula: QTc_ms = QT_ms / sqrt(RR_s)
                             qtc_ms.append(dur / np.sqrt(rr_s))
 
         if pr_ms:
