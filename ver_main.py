@@ -1907,12 +1907,12 @@ class VERMainWindow(QMainWindow):
         # --- Third CSV: extended single-row NeuroKit2 summary ---
         # Contains HRV (time/frequency/nonlinear), rate stats, and morphology
         # metrics.  Partial failures are handled gracefully inside the function.
-        extended_path = out_dir / f"{prefix}_extended_nk_summary.csv"
+        extended_path: Path | None = out_dir / f"{prefix}_extended_nk_summary.csv"
         try:
             save_extended_nk_summary_csv(report_data, extended_path)
         except Exception as exc:
             log.warning("Extended NeuroKit2 summary CSV could not be written: %s", exc)
-            extended_path = None  # type: ignore[assignment]
+            extended_path = None
 
         saved_names = [continuous_path.name, beat_path.name]
         if extended_path is not None:

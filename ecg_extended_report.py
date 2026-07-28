@@ -229,8 +229,9 @@ def _add_morphology_metrics(
     ECG_QT_Interval_Mean
         Mean Q-peak → T-peak duration (ms).
     ECG_QTc_Mean
-        Bazett-corrected mean QT (QT_ms / sqrt(RR_s)) in ms, using the RR
-        interval of the beat that contains the QT measurement (following RR).
+        Bazett-corrected mean QT (QT_ms / sqrt(RR_s)) in ms, using the
+        following RR interval (i.e. the interval from the current R-peak
+        to the next R-peak), which is the beat containing the QT measurement.
     ECG_P_Duration_Mean, ECG_T_Duration_Mean
         Set to ``""``; onset/offset positions are not stored by the current
         pipeline and cannot be computed from peaks alone.
@@ -275,11 +276,13 @@ def _add_morphology_metrics(
         qt_ms: list[float] = []
         qtc_ms: list[float] = []
 
-        for i, r in enumerate(r_peaks.tolist()):
-            # RR interval for Bazett QTc: use the RR of the beat containing
-            # the QT measurement (following RR = next R minus current R).
+        for i, r in enumerate(r_peaks):
+            r = int(r)
+            # RR interval for Bazett QTc: use the following RR interval
+            # (current R-peak to next R-peak), which is the beat that
+            # contains the QT measurement being corrected.
             rr_s: float | None = (
-                (r_peaks[i + 1] - r) / fs if i < len(r_peaks) - 1 else None
+                (r_peaks[i + 1] - r) / fs if i < r_peaks.size - 1 else None
             )
 
             # --- PR interval: nearest P peak in window [r-300ms, r-50ms] ---
