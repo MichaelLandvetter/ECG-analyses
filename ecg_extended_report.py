@@ -31,6 +31,23 @@ from typing import Any
 
 import numpy as np
 
+# ---------------------------------------------------------------------------
+# Physiological search-window constants for beat-by-beat wave matching
+# (all values are in seconds relative to each R-peak)
+# ---------------------------------------------------------------------------
+# P wave: expected 300 ms to 50 ms BEFORE the R-peak
+_P_SEARCH_LO_S: float = 0.30
+_P_SEARCH_HI_S: float = 0.05
+# Q wave: expected 100 ms to 5 ms BEFORE the R-peak
+_Q_SEARCH_LO_S: float = 0.10
+_Q_SEARCH_HI_S: float = 0.005
+# S wave: expected 5 ms to 120 ms AFTER the R-peak
+_S_SEARCH_LO_S: float = 0.005
+_S_SEARCH_HI_S: float = 0.12
+# T wave: expected 50 ms to 500 ms AFTER the R-peak
+_T_SEARCH_LO_S: float = 0.05
+_T_SEARCH_HI_S: float = 0.50
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -115,7 +132,14 @@ def compute_extended_nk_metrics(report_data: dict) -> dict[str, Any]:
     # ------------------------------------------------------------------
     if _NK_AVAILABLE and r_peaks.size >= 4:
         try:
-            hrv_df = nk.hrv(r_peaks, sampling_rate=int(round(fs)), show=False)
+            fs_int = int(round(fs))
+            if abs(fs - fs_int) > 0.1:
+                log.warning(
+                    "Sample rate %.4f Hz rounds to %d Hz; large rounding may affect HRV accuracy.",
+                    fs,
+                    fs_int,
+                )
+            hrv_df = nk.hrv(r_peaks, sampling_rate=fs_int, show=False)
             for col in hrv_df.columns:
                 val = hrv_df[col].iloc[0]
                 if val is None or (isinstance(val, float) and np.isnan(val)):
@@ -203,18 +227,14 @@ def _add_morphology_metrics(
         return
 
     # Physiological search windows relative to each R-peak (in samples).
-    # P peak: 300 ms to 50 ms BEFORE R
-    _p_lo = -int(round(0.30 * fs))
-    _p_hi = -int(round(0.05 * fs))
-    # Q peak: 100 ms to 5 ms BEFORE R
-    _q_lo = -int(round(0.10 * fs))
-    _q_hi = -int(round(0.005 * fs))
-    # S peak: 5 ms to 120 ms AFTER R
-    _s_lo = int(round(0.005 * fs))
-    _s_hi = int(round(0.12 * fs))
-    # T peak: 50 ms to 500 ms AFTER R
-    _t_lo = int(round(0.05 * fs))
-    _t_hi = int(round(0.50 * fs))
+    _p_lo = -int(round(_P_SEARCH_LO_S * fs))  # P: 300 ms before R
+    _p_hi = -int(round(_P_SEARCH_HI_S * fs))  # P: 50 ms before R
+    _q_lo = -int(round(_Q_SEARCH_LO_S * fs))  # Q: 100 ms before R
+    _q_hi = -int(round(_Q_SEARCH_HI_S * fs))  # Q: 5 ms before R
+    _s_lo =  int(round(_S_SEARCH_LO_S * fs))  # S: 5 ms after R
+    _s_hi =  int(round(_S_SEARCH_HI_S * fs))  # S: 120 ms after R
+    _t_lo =  int(round(_T_SEARCH_LO_S * fs))  # T: 50 ms after R
+    _t_hi =  int(round(_T_SEARCH_HI_S * fs))  # T: 500 ms after R
 
     try:
         pr_ms: list[float] = []
@@ -258,7 +278,8 @@ def _add_morphology_metrics(
                     if dur > 0:
                         qt_ms.append(dur)
                         if rr_s and rr_s > 0:
-                            qtc_ms.append((dur / 1000.0) / np.sqrt(rr_s) * 1000.0)
+                            # Bazett's formula: QTc = QT_ms / sqrt(RR_s)
+                            qtc_ms.append(dur / np.sqrt(rr_s))
 
         if pr_ms:
             row["ECG_PR_Interval_Mean"] = float(np.mean(pr_ms))
