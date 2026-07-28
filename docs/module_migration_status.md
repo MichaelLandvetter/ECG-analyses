@@ -58,14 +58,24 @@ Remove them once the corresponding call-sites are updated.
 
 | Module | Role | Why legacy | Transitive callers |
 |--------|------|------------|-------------------|
-| `ver_scope.py` | Flash-locked epoch extraction + session averaging | Designed for VER trigger-based epochs; ECG needs R-peak detection | `ecg_scope.py` (delegation), `ver_preflight.py` |
+| `ver_scope.py` | Flash-locked epoch extraction + session averaging | Designed for VER trigger-based epochs; ECG needs R-peak detection | `ecg_scope.py` (delegation) |
 | `ver_peaks.py` | VER peak detection (P1/P2/P3 morphology) | Peak model is VER-specific; ECG needs P/Q/R/S/T detection | `ver_analysis_engine.py` |
 | `ver_classifier.py` | VER SNR/latency/power classifier | Decision logic tuned to VER pass/fail; ECG classification TBD | `ver_analysis_engine.py` |
 | `ver_report.py` | PDF + CSV VER report generation | Column headers, labels, and wording are VER-specific | `ver_analysis_engine.py` |
 | `ver_ml_logger.py` | Human-in-the-loop ML training data collector | Schema targets VER labels | `ver_main.py` (save_report) |
-| `ver_wavelet.py` | Morlet wavelet scalogram computation | Called from `_record_session`; scalogram panel removed from UI | `ver_main.py` (_record_session) |
-| `ver_downsample.py` | LabChart file downsampler (1000 → 250 Hz) | LabChart format no longer in ECG active path | `ver_main.py` (menu only) |
-| `ver_constants.py` | Scope filter mode string constants | Scope/Analysis filter removed from ECG UI | unused after step 9 |
+| `ver_wavelet.py` | Morlet wavelet scalogram computation | Called from `_record_session`; scalogram panel removed from UI | `ver_main.py` (_record_session), `ver_report.py` |
+| `ver_constants.py` | Scope filter mode string constants | Scope/Analysis filter removed from ECG UI; kept via `ver_filter.py` dependency | `ver_filter.py` |
+| `ver_USB_test.py` | Standalone USB/serial diagnostic GUI | Reached via lazy import only; not statically bundled by PyInstaller | `ver_main.py` (_launch_usb_test, lazy) |
+
+### Deleted in this PR
+
+| Module | Why deleted |
+|--------|-------------|
+| ~~`ver_preflight.py`~~ | Not imported by any module in the ECG path.  `_suggest_exclusion()` was removed from `ver_main.py` in an earlier cleanup PR. |
+| ~~`ver_downsample.py`~~ | Not imported by any module.  "Downsample LabChart file" menu action was removed from the ECG UI path; only referenced in comments. |
+
+> See [`docs/ver_cleanup_audit.md`](ver_cleanup_audit.md) for the full import-graph-based
+> classification of all `ver_*.py` files.
 
 ---
 
@@ -73,8 +83,8 @@ Remove them once the corresponding call-sites are updated.
 
 | Entrypoint | Status | Notes |
 |------------|--------|-------|
-| `ecg_main.py` | ✅ **Canonical ECG entrypoint** | `python ecg_main.py` |
-| `ver_main.py` | 🔧 Still the module containing `VERMainWindow` | Run directly as backward-compat shim; delegates to `ecg_main.py` concept |
+| `ecg_main.py` | ✅ **Canonical ECG entrypoint** | `python ecg_main.py` — owns startup orchestration (logging, QApplication, window creation, splash teardown) |
+| `ver_main.py` | 🔧 Still the module containing `VERMainWindow` | `main()` is now a backward-compat shim delegating to `ecg_main.main()` |
 
 ---
 
@@ -116,7 +126,29 @@ Remove them once the corresponding call-sites are updated.
 
 ---
 
-## Recommended next cleanup targets (after Step 9)
+## What changed in this canonical-launcher PR
+
+### `ecg_main.py` — promoted to real canonical launcher
+- Now contains the full `main()` function (startup orchestration).
+- Imports `VERMainWindow` from `ver_main` directly.
+- Owns `pyi_splash.close()` call for packaged builds.
+
+### `ver_main.py` — demoted to module + shim
+- Removed `pyi_splash` module-level import (now in `ecg_main.py`).
+- `main()` function replaced with a backward-compat shim that calls `ecg_main.main()`.
+- Updated module docstring to reflect new role.
+
+### Deleted files
+- `ver_preflight.py` — not imported anywhere in ECG path.
+- `ver_downsample.py` — not imported anywhere; menu action already removed.
+
+### New documentation
+- `docs/ver_cleanup_audit.md` — full import-graph-based keep/remove classification
+  for every `ver_*.py` file in the repository.
+
+---
+
+## Recommended next cleanup targets (after canonical-launcher PR)
 
 1. **Replace `ecg_scope.py` body** with real ECG R-peak detection (e.g. Pan-Tompkins).
    This will make the tachometer and R-peak scatter live.

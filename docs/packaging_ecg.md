@@ -37,23 +37,24 @@ transitively and includes only the discovered modules.
 
 | Module | Reason |
 |--------|--------|
-| `ecg_main.py` | Entrypoint |
-| `ver_main.py` | Imported by `ecg_main.py` → `from ver_main import main` |
+| `ecg_main.py` | Entrypoint — owns startup orchestration |
+| `ver_main.py` | `VERMainWindow` imported by `ecg_main.py` |
 | `ecg_config.py`, `ecg_loader.py`, `ecg_pipeline.py`, `ecg_scope.py`, `ecg_classifier.py`, `ecg_report.py` | Imported by `ver_main.py` |
 | `ver_display.py`, `ver_filter.py`, `ver_acquisition.py`, `ver_config.py` | Imported by `ver_main.py` |
-| `ver_settings.py`, `ver_logging.py`, `ver_analysis_flow.py`, `ver_preflight.py` | Imported by `ver_main.py` |
-| `ver_analysis_engine.py`, `ver_peaks.py`, `ver_report.py`, `ver_classifier.py` | Transitively imported |
-| `ver_wavelet.py`, `ver_ml_logger.py`, `ver_scope.py`, `ver_downsample.py` | Imported by `ver_main.py` |
-| `ver_constants.py` | Imported by a transitive module |
+| `ver_settings.py`, `ver_logging.py`, `ver_analysis_flow.py` | Imported by `ver_main.py` |
+| `ver_analysis_engine.py`, `ver_peaks.py`, `ver_classifier.py`, `ver_report.py` | Transitively imported |
+| `ver_wavelet.py`, `ver_ml_logger.py`, `ver_scope.py` | Imported by `ver_main.py` |
+| `ver_constants.py` | Imported by `ver_filter.py` |
 
 ### What is NOT bundled (auto-excluded)
 
 | Module | Reason |
 |--------|--------|
-| `ver_USB_test.py` | Never imported from `ecg_main.py`; standalone VER test script |
+| `ver_USB_test.py` | Reached only via a lazy `import` inside a method body (`_launch_usb_test`); PyInstaller's static analyser cannot see it.  **Add `ver_USB_test` to `hiddenimports` in `ecg.spec`** if the USB Test menu item must work in the packaged build. |
 
-The `ecg.spec` file explicitly lists `ver_USB_test` in `excludes` to document
-this intent, though PyInstaller would skip it automatically anyway.
+> **Removed modules (no longer present):** `ver_preflight.py` and
+> `ver_downsample.py` were deleted in this PR — they were never imported by any
+> module in the ECG path.  See `docs/ver_cleanup_audit.md` for details.
 
 ---
 
@@ -105,7 +106,7 @@ add the missing module name to `hiddenimports` in `ecg.spec` and rebuild.
 The spec configures a splash screen using `Assets/Please_wait.png` via
 PyInstaller's built-in `Splash()` class.  To disable the splash, remove the
 `Splash()` block and all references to `splash` / `splash.binaries` in the
-spec, and also remove the `pyi_splash.close()` call in `ver_main.py::main()`.
+spec, and also remove the `pyi_splash.close()` call in `ecg_main.py::main()`.
 
 ---
 
