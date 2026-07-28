@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import QApplication
 if getattr(sys, 'frozen', False):
     import pyi_splash  # type: ignore[import]  # only present in packaged build
 
-from ver_logging import setup_logging
+from ver_logging import setup_frozen_debug_logging, setup_logging
 from ver_main import VERMainWindow
 
 log = logging.getLogger(__name__)
@@ -37,7 +37,16 @@ def main() -> None:
     splash-screen teardown, and event-loop execution.
     """
     log_path = setup_logging()
+    debug_log_path = setup_frozen_debug_logging()
     log.info("ECG Analysis application starting (log: %s)", log_path)
+    frozen_debug_log = logging.getLogger("ver.frozen_debug")
+    frozen_debug_log.info(
+        "startup: sys.frozen=%s executable=%s script=%s diagnostics_log=%s",
+        getattr(sys, "frozen", False),
+        sys.executable,
+        __file__,
+        debug_log_path,
+    )
     app = QApplication(sys.argv)
     win = VERMainWindow()
     win.show()
