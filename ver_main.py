@@ -68,7 +68,7 @@ from ecg_config import ECG_PROCESSING_CONFIG
 # --- Generic infrastructure (keep for ECG) ---
 from ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
 from ver_config import ACQ_CONFIG, EPOCH_CONFIG, FILTER_CONFIG, SERIAL_CONFIG
-from ver_display import VERDisplayWidget
+from ver_display import VERDisplayWidget, _FocusableViewBox
 from ver_filter import BandpassFilter
 from ver_logging import setup_logging
 from ver_wavelet import compute_wavelet_scalogram
@@ -107,6 +107,26 @@ _FILTER_MODES_WITH_LOW_HIGH = {
 }
 # NOTE: PEAK_DETECTION_MODE_OPTIONS (VER-specific classifier peak mode labels)
 # removed along with ClassifierSettingsTab in the ECG cleanup PR.
+
+# Pre-report dialog panel titles — shown when layout is normal vs. focused.
+_PRE_TITLE_ECG_NORMAL = (
+    "Full ECG \u2014 raw + filtered + R-peaks  \u00b7 double-click to enlarge"
+)
+_PRE_TITLE_HR_NORMAL = (
+    "Heart Rate (full duration)  \u00b7 double-click to enlarge"
+)
+_PRE_TITLE_BEATS_NORMAL = (
+    "Individual beats + average beat  \u00b7 double-click to enlarge"
+)
+_PRE_TITLE_ECG_FOCUSED = (
+    "Full ECG \u2014 raw + filtered + R-peaks  \u00b7 double-click to restore"
+)
+_PRE_TITLE_HR_FOCUSED = (
+    "Heart Rate (full duration)  \u00b7 double-click to restore"
+)
+_PRE_TITLE_BEATS_FOCUSED = (
+    "Individual beats + average beat  \u00b7 double-click to restore"
+)
 
 
 def _refresh_runtime_classifier_settings(classifier_cfg: dict | None) -> None:
@@ -463,30 +483,39 @@ class ECGPreReportDialog(QDialog):
         source_label.setStyleSheet("font-weight: bold;")
         layout.addWidget(source_label)
 
+        # Focus-state tracker: None = normal layout, 0/1/2 = panel index in focus.
+        self._focused_panel: int | None = None
+
         # --- Full ECG panel (raw + filtered + optional R-peaks) ---
-        self.plot_ecg = pg.PlotWidget(title="Full ECG — raw + filtered + R-peaks")
+        _vb_ecg = _FocusableViewBox()
+        _vb_ecg.sigDoubleClicked.connect(lambda: self._toggle_focus(0))
+        self.plot_ecg = pg.PlotWidget(viewBox=_vb_ecg, title=_PRE_TITLE_ECG_NORMAL)
         self.plot_ecg.showGrid(x=True, y=True, alpha=0.3)
         self.plot_ecg.setLabel("bottom", "Time", "s")
         self.plot_ecg.setLabel("left", "Amplitude")
-        self.plot_ecg.getViewBox().setMouseEnabled(x=True, y=True)
+        _vb_ecg.setMouseEnabled(x=True, y=True)
         layout.addWidget(self.plot_ecg, stretch=2)
 
         # --- Heart-rate panel ---
-        self.plot_hr = pg.PlotWidget(title="Heart Rate (full duration)")
+        _vb_hr = _FocusableViewBox()
+        _vb_hr.sigDoubleClicked.connect(lambda: self._toggle_focus(1))
+        self.plot_hr = pg.PlotWidget(viewBox=_vb_hr, title=_PRE_TITLE_HR_NORMAL)
         self.plot_hr.showGrid(x=True, y=True, alpha=0.3)
         self.plot_hr.setLabel("bottom", "Time", "s")
         self.plot_hr.setLabel("left", "Heart Rate", "bpm")
-        self.plot_hr.getViewBox().setMouseEnabled(x=True, y=True)
+        _vb_hr.setMouseEnabled(x=True, y=True)
         # Lock HR x-axis to the ECG plot so pan/zoom stays in sync
         self.plot_hr.setXLink(self.plot_ecg)
         layout.addWidget(self.plot_hr, stretch=1)
 
         # --- Individual beats panel ---
-        self.plot_beats = pg.PlotWidget(title="Individual beats + average beat")
+        _vb_beats = _FocusableViewBox()
+        _vb_beats.sigDoubleClicked.connect(lambda: self._toggle_focus(2))
+        self.plot_beats = pg.PlotWidget(viewBox=_vb_beats, title=_PRE_TITLE_BEATS_NORMAL)
         self.plot_beats.showGrid(x=True, y=True, alpha=0.3)
         self.plot_beats.setLabel("bottom", "Time around R-peak", "ms")
         self.plot_beats.setLabel("left", "Amplitude")
-        self.plot_beats.getViewBox().setMouseEnabled(x=True, y=True)
+        _vb_beats.setMouseEnabled(x=True, y=True)
         self.plot_beats.addLegend(offset=(10, 10))
         layout.addWidget(self.plot_beats, stretch=1)
 
@@ -613,6 +642,33 @@ class ECGPreReportDialog(QDialog):
             self._beats_info_label.setText(
                 "Individual beats panel unavailable for this run (not enough complete R-peak windows)."
             )
+
+    def _toggle_focus(self, panel_idx: int) -> None:
+        """Toggle between normal three-panel layout and single-panel focused view.
+
+        Double-click any graph panel to expand it to fill the graph area and
+        hide the other two panels.  Double-click the same panel again to restore
+        the normal three-panel layout.
+        """
+        panels = [self.plot_ecg, self.plot_hr, self.plot_beats]
+        normal_titles = [_PRE_TITLE_ECG_NORMAL, _PRE_TITLE_HR_NORMAL, _PRE_TITLE_BEATS_NORMAL]
+        focused_titles = [_PRE_TITLE_ECG_FOCUSED, _PRE_TITLE_HR_FOCUSED, _PRE_TITLE_BEATS_FOCUSED]
+
+        if self._focused_panel == panel_idx:
+            # Currently focused on this panel — restore normal layout.
+            self._focused_panel = None
+            for i, p in enumerate(panels):
+                p.show()
+                p.setTitle(normal_titles[i])
+        else:
+            # Focus the selected panel, hide the other two.
+            self._focused_panel = panel_idx
+            for i, p in enumerate(panels):
+                if i == panel_idx:
+                    p.show()
+                    p.setTitle(focused_titles[i])
+                else:
+                    p.hide()
 
     def _save_reports(self) -> None:
         self._save_callback(self._report_data)

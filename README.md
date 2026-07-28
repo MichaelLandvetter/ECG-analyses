@@ -58,11 +58,32 @@ and classification (reusable / moderate refactoring needed / VER-specific).
 
 ```bash
 pip install -r requirements.txt   # if a requirements file is present
-python ver_main.py
+python ecg_main.py
 ```
 
 The application will start with the inherited VER infrastructure. All existing
 features (file replay, live USB, report export) remain functional.
+
+`ver_main.py` is kept as a backward-compatibility shim; `ecg_main.py` is the
+**canonical entrypoint** going forward.
+
+## Building a standalone executable (distribution)
+
+This repository contains both `ecg_*.py` and `ver_*.py` modules.  Only the
+modules transitively imported from `ecg_main.py` are bundled into the
+executable — unused VER scripts are excluded automatically.
+
+**Quick build (Windows):**
+
+```bat
+pip install pyinstaller
+build_ecg.bat
+```
+
+Output: `dist\ECG_Analysis\ECG_Analysis.exe`
+
+See [docs/packaging_ecg.md](docs/packaging_ecg.md) for full details,
+troubleshooting, and hidden-import guidance.
 
 ## Next steps
 
