@@ -451,7 +451,11 @@ class ECGPreReportDialog(QDialog):
         self._report_data = report_data
         self._save_callback = save_callback
         self.setWindowTitle("ECG Pre-report Review")
-        self.resize(1200, 900)
+        _screen = QApplication.primaryScreen()
+        _avail = _screen.availableGeometry() if _screen else None
+        _dlg_w = min(1200, int(_avail.width() * 0.90)) if _avail else 1200
+        _dlg_h = min(900, int(_avail.height() * 0.90)) if _avail else 900
+        self.resize(_dlg_w, _dlg_h)
 
         layout = QVBoxLayout(self)
 
@@ -483,6 +487,7 @@ class ECGPreReportDialog(QDialog):
         self.plot_beats.setLabel("bottom", "Time around R-peak", "ms")
         self.plot_beats.setLabel("left", "Amplitude")
         self.plot_beats.getViewBox().setMouseEnabled(x=True, y=True)
+        self.plot_beats.addLegend(offset=(10, 10))
         layout.addWidget(self.plot_beats, stretch=1)
 
         self._beats_info_label = QLabel("")
@@ -552,10 +557,14 @@ class ECGPreReportDialog(QDialog):
         if beat_segments:
             beats = np.vstack(beat_segments)
             beat_t_ms = (np.arange(beats.shape[1], dtype=float) - pre_n) * (1000.0 / fs)
-            for beat in beats:
-                self.plot_beats.plot(beat_t_ms, beat, pen=pg.mkPen((120, 120, 120, 80), width=1))
+            for i, beat in enumerate(beats):
+                self.plot_beats.plot(
+                    beat_t_ms, beat,
+                    pen=pg.mkPen((120, 120, 120, 80), width=1),
+                    name="Individual beats" if i == 0 else None,
+                )
             mean_beat = np.mean(beats, axis=0)
-            self.plot_beats.plot(beat_t_ms, mean_beat, pen=pg.mkPen((255, 220, 0), width=3))
+            self.plot_beats.plot(beat_t_ms, mean_beat, pen=pg.mkPen((255, 220, 0), width=3), name="Average beat")
 
             # Overlay P/Q/S/T landmark markers aligned to each beat window.
             # Each wave type: (report_data key, RGB colour tuple, legend label)
@@ -676,7 +685,11 @@ class VERMainWindow(QMainWindow):
         super().__init__()
         self.settings_manager = SettingsManager()
         self.setWindowTitle("ECG Analysis")
-        self.resize(1280, 920)
+        _screen = QApplication.primaryScreen()
+        _avail = _screen.availableGeometry() if _screen else None
+        _win_w = min(1280, int(_avail.width() * 0.90)) if _avail else 1280
+        _win_h = min(920, int(_avail.height() * 0.90)) if _avail else 920
+        self.resize(_win_w, _win_h)
 
         self.data_file = None
         self.worker = None
@@ -846,13 +859,26 @@ class VERMainWindow(QMainWindow):
 
         # --- Control Widgets ---
         self.start_btn = QPushButton("Start")
-        self.stop_btn = QPushButton("Stop  (Space)")
+        self.stop_btn = QPushButton("Stop")
         self.reset_btn = QPushButton("Reset")
         self.save_btn = QPushButton("Open Pre-report")
         self.start_btn.clicked.connect(self.start_acquisition)
         self.stop_btn.clicked.connect(self.stop_acquisition)
         self.reset_btn.clicked.connect(self.reset_all)
         self.save_btn.clicked.connect(self.open_pre_report)
+
+        # --- Box 4 R-peak Detection Combo (mirrors ECG Processing Settings detector) ---
+        self.box4_detector_combo = QComboBox()
+        self.box4_detector_combo.addItems(ECG_DETECTOR_METHODS)
+        _saved_detector = self._ecg_proc_cfg.get("detector_method", ECG_DETECTOR_DEFAULT)
+        if _saved_detector in ECG_DETECTOR_METHODS:
+            self.box4_detector_combo.setCurrentText(_saved_detector)
+        else:
+            self.box4_detector_combo.setCurrentText(ECG_DETECTOR_DEFAULT)
+        self.box4_detector_combo.setToolTip(
+            "NeuroKit2 R-peak detection method.  Changes here are\n"
+            "automatically reflected in ECG Processing Settings."
+        )
 
         # --- Speed Widget ---
         self.speed_combo = QComboBox()
@@ -915,10 +941,10 @@ class VERMainWindow(QMainWindow):
         group3.setLayout(layout3)
         top_bar.addWidget(group3)
         
-        # 4. DISPLAY SPEED GROUP
-        group4 = QGroupBox("4. Display Speed")
+        # 4. R-PEAK DETECTION GROUP (replaces the legacy Display Speed group)
+        group4 = QGroupBox("4. R-peak Detection")
         layout4 = QFormLayout()
-        layout4.addRow("Speed:", self.speed_combo)
+        layout4.addRow("Method:", self.box4_detector_combo)
         group4.setLayout(layout4)
         top_bar.addWidget(group4)
 
@@ -994,8 +1020,12 @@ class VERMainWindow(QMainWindow):
         det_form.addRow("Method:", self.detector_combo)
         ecg_settings_layout.addWidget(det_group)
 
+        # Bidirectional sync: Box 4 combo ↔ Settings tab combo
+        self.box4_detector_combo.currentTextChanged.connect(self._sync_detector_from_box4)
+        self.detector_combo.currentTextChanged.connect(self._sync_detector_from_settings)
+
         # --- Rolling window group ---
-        win_group = QGroupBox("Rolling Window (streaming / 1× / 10× replay)")
+        win_group = QGroupBox("Rolling Window (USB streaming only — not used for offline file analysis)")
         win_form = QFormLayout(win_group)
 
         self.rolling_window_spin = QDoubleSpinBox()
@@ -1355,7 +1385,7 @@ class VERMainWindow(QMainWindow):
     def stop_acquisition(self):
         if self.worker is not None:
             self.worker.pause_stream()
-        self.start_btn.setText("Resume  (Space)")
+        self.start_btn.setText("Resume")
         if self.acquisition_source_mode == "Serial" and self._captured_serial_raw:
             resp = QMessageBox.question(
                 self,
@@ -1501,6 +1531,29 @@ class VERMainWindow(QMainWindow):
 
         self.display.set_status("ECG processing settings saved.")
         log.info("ECG processing settings saved: %s", self._ecg_proc_cfg)
+
+    def _sync_detector_from_box4(self, text: str) -> None:
+        """Keep the ECG Processing Settings detector combo in sync with Box 4.
+
+        Also updates the live processing config so the new method takes effect
+        on the next analysis run without requiring a manual Settings save.
+        """
+        if self.detector_combo.currentText() != text:
+            self.detector_combo.blockSignals(True)
+            self.detector_combo.setCurrentText(text)
+            self.detector_combo.blockSignals(False)
+        # Apply immediately to the active config and rebuild processors
+        if self._ecg_proc_cfg.get("detector_method") != text:
+            self._ecg_proc_cfg["detector_method"] = text
+            self._ecg_rolling = self._build_ecg_rolling_processor()
+            self._ecg_offline = self._build_ecg_offline_processor()
+
+    def _sync_detector_from_settings(self, text: str) -> None:
+        """Keep the Box 4 detector combo in sync with the ECG Processing Settings tab."""
+        if self.box4_detector_combo.currentText() != text:
+            self.box4_detector_combo.blockSignals(True)
+            self.box4_detector_combo.setCurrentText(text)
+            self.box4_detector_combo.blockSignals(False)
 
     def _build_pre_report_data(
         self,
@@ -2159,28 +2212,12 @@ class VERMainWindow(QMainWindow):
         )
 
     def keyPressEvent(self, event):
-        """Handle Space bar to toggle Stop/Resume during an active analysis session.
+        """Pass all key events to the default handler.
 
-        Space toggles between Stop and Resume only when analysis has already
-        started (i.e. the start button shows "Running..." or "Resume  (Space)").
-        Space is intentionally NOT mapped to the initial Start action.
-        The shortcut is suppressed when focus is in a text-entry or spin-box
-        widget so that normal typing is never interrupted.
+        The legacy Space-bar stop/resume shortcut from the VER application has
+        been removed — it does not make sense for the ECG workflow and caused
+        unexpected behaviour when users pressed Space in other contexts.
         """
-        if event.key() == Qt.Key.Key_Space:
-            focused = QApplication.focusWidget()
-            if isinstance(focused, (QLineEdit, QAbstractSpinBox, QTextEdit)):
-                super().keyPressEvent(event)
-                return
-            btn_text = self.start_btn.text()
-            if btn_text.startswith("Running"):
-                self.stop_acquisition()
-                event.accept()
-                return
-            elif btn_text.startswith("Resume"):
-                self.start_acquisition()
-                event.accept()
-                return
         super().keyPressEvent(event)
 
     def closeEvent(self, event):
