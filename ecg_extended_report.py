@@ -227,14 +227,15 @@ def _add_morphology_metrics(
         return
 
     # Physiological search windows relative to each R-peak (in samples).
-    _p_lo = -int(round(_P_SEARCH_LO_S * fs))  # P: 300 ms before R
-    _p_hi = -int(round(_P_SEARCH_HI_S * fs))  # P: 50 ms before R
-    _q_lo = -int(round(_Q_SEARCH_LO_S * fs))  # Q: 100 ms before R
-    _q_hi = -int(round(_Q_SEARCH_HI_S * fs))  # Q: 5 ms before R
-    _s_lo =  int(round(_S_SEARCH_LO_S * fs))  # S: 5 ms after R
-    _s_hi =  int(round(_S_SEARCH_HI_S * fs))  # S: 120 ms after R
-    _t_lo =  int(round(_T_SEARCH_LO_S * fs))  # T: 50 ms after R
-    _t_hi =  int(round(_T_SEARCH_HI_S * fs))  # T: 500 ms after R
+    # Variables are named as distances, then applied as signed offsets below.
+    _p_far  = int(round(_P_SEARCH_LO_S * fs))  # P far edge: 300 ms before R
+    _p_near = int(round(_P_SEARCH_HI_S * fs))  # P near edge: 50 ms before R
+    _q_far  = int(round(_Q_SEARCH_LO_S * fs))  # Q far edge: 100 ms before R
+    _q_near = int(round(_Q_SEARCH_HI_S * fs))  # Q near edge: 5 ms before R
+    _s_near = int(round(_S_SEARCH_LO_S * fs))  # S near edge: 5 ms after R
+    _s_far  = int(round(_S_SEARCH_HI_S * fs))  # S far edge: 120 ms after R
+    _t_near = int(round(_T_SEARCH_LO_S * fs))  # T near edge: 50 ms after R
+    _t_far  = int(round(_T_SEARCH_HI_S * fs))  # T far edge: 500 ms after R
 
     try:
         pr_ms: list[float] = []
@@ -246,32 +247,32 @@ def _add_morphology_metrics(
             # RR interval needed for Bazett QTc (use preceding beat's RR)
             rr_s: float | None = (r - r_peaks[i - 1]) / fs if i > 0 else None
 
-            # --- PR interval: distance from nearest preceding P peak to R ---
+            # --- PR interval: nearest P peak in window [r-300ms, r-50ms] ---
             if p_idx.size:
-                in_win = p_idx[(p_idx >= r + _p_lo) & (p_idx <= r + _p_hi)]
+                in_win = p_idx[(p_idx >= r - _p_far) & (p_idx <= r - _p_near)]
                 if in_win.size:
                     nearest_p = int(in_win[np.argmin(np.abs(in_win - r))])
                     pr_ms.append((r - nearest_p) * 1000.0 / fs)
 
-            # --- QRS and QT: need matched Q in each beat ---
+            # --- QRS and QT: need matched Q in window [r-100ms, r-5ms] ---
             nearest_q: int | None = None
             if q_idx.size:
-                in_win_q = q_idx[(q_idx >= r + _q_lo) & (q_idx <= r + _q_hi)]
+                in_win_q = q_idx[(q_idx >= r - _q_far) & (q_idx <= r - _q_near)]
                 if in_win_q.size:
                     nearest_q = int(in_win_q[np.argmin(np.abs(in_win_q - r))])
 
-            # QRS duration: Q → S
+            # QRS duration: Q → S where S is in [r+5ms, r+120ms]
             if nearest_q is not None and s_idx.size:
-                in_win_s = s_idx[(s_idx >= r + _s_lo) & (s_idx <= r + _s_hi)]
+                in_win_s = s_idx[(s_idx >= r + _s_near) & (s_idx <= r + _s_far)]
                 if in_win_s.size:
                     nearest_s = int(in_win_s[np.argmin(np.abs(in_win_s - r))])
                     dur = (nearest_s - nearest_q) * 1000.0 / fs
                     if dur > 0:
                         qrs_ms.append(dur)
 
-            # QT interval: Q → T; also compute Bazett QTc if RR available
+            # QT interval: Q → T where T is in [r+50ms, r+500ms]
             if nearest_q is not None and t_idx.size:
-                in_win_t = t_idx[(t_idx >= r + _t_lo) & (t_idx <= r + _t_hi)]
+                in_win_t = t_idx[(t_idx >= r + _t_near) & (t_idx <= r + _t_far)]
                 if in_win_t.size:
                     nearest_t = int(in_win_t[np.argmin(np.abs(in_win_t - r))])
                     dur = (nearest_t - nearest_q) * 1000.0 / fs
