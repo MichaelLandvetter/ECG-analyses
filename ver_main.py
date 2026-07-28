@@ -1,10 +1,14 @@
-"""Main application entry point for modular ECG analysis.
+"""Main window and workflow orchestration for the ECG Analysis application.
 
 NOTE (transition): This module was copied from the VER-analyses codebase.
 Class names, internal variable names, and some UI labels still carry the
 ``VER`` prefix.  They are intentional placeholders until the corresponding
 analysis modules (ver_scope, ver_peaks, ver_classifier) are replaced with
 ECG-specific implementations.  See TRANSITION.md for the full roadmap.
+
+Application startup (``main()``) has been moved to ``ecg_main.py``, which
+is the canonical ECG launcher.  The ``main()`` function in this module is
+a backward-compatibility shim that delegates to ``ecg_main.main()``.
 """
 
 from __future__ import annotations
@@ -20,9 +24,6 @@ from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
-
-if getattr(sys, 'frozen', False):
-    import pyi_splash
 
 from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal
 from PyQt6.QtGui import QAction
@@ -70,7 +71,6 @@ from ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
 from ver_config import ACQ_CONFIG, EPOCH_CONFIG, FILTER_CONFIG, SERIAL_CONFIG
 from ver_display import VERDisplayWidget, _FocusableViewBox
 from ver_filter import BandpassFilter
-from ver_logging import setup_logging
 from ver_wavelet import compute_wavelet_scalogram
 from ver_ml_logger import launch_ml_logger
 from ver_settings import SettingsManager
@@ -2285,19 +2285,17 @@ class VERMainWindow(QMainWindow):
         super().closeEvent(event)
 
 
-def main():
-    log_path = setup_logging()
-    log.info("ECG Analysis application starting (log: %s)", log_path)
-    app = QApplication(sys.argv)
-    win = VERMainWindow()
-    win.show()
+def main() -> None:
+    """Backward-compatibility shim — delegates to ``ecg_main.main()``.
 
-    if getattr(sys, 'frozen', False):
-        pyi_splash.close()
-
-    sys.exit(app.exec())
+    ``ecg_main.py`` is the canonical ECG launcher.  This function is kept so
+    that any code that calls ``ver_main.main()`` directly continues to work
+    without changes.  Use ``ecg_main.py`` (``python ecg_main.py``) as the
+    primary entrypoint for new usage.
+    """
+    import ecg_main as _ecg_main  # lazy import avoids circular-import at module level
+    _ecg_main.main()
 
 
 if __name__ == "__main__":
     main()
-    
