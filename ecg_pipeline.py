@@ -42,6 +42,7 @@ Extension points (deferred to future PRs)
 from __future__ import annotations
 
 import logging
+import sys
 from collections import deque
 from dataclasses import dataclass, field
 from typing import NamedTuple
@@ -50,6 +51,7 @@ import numpy as np
 from scipy.signal import butter, sosfiltfilt, sosfilt, sosfilt_zi, iirnotch, filtfilt
 
 log = logging.getLogger(__name__)
+frozen_debug_log = logging.getLogger("ver.frozen_debug")
 
 # ---------------------------------------------------------------------------
 # Optional NeuroKit2 import
@@ -642,6 +644,11 @@ class ECGOfflineProcessor:
 
         # Attempt NeuroKit2 full pipeline first (best accuracy)
         if _NK_AVAILABLE:
+            frozen_debug_log.debug(
+                "delineation start: raw_samples=%d sample_rate=%.3f",
+                raw_signal.size,
+                self.sample_rate,
+            )
             try:
                 signals_df, info = nk.ecg_process(
                     raw_signal,
@@ -660,6 +667,7 @@ class ECGOfflineProcessor:
                 # Extract P/Q/S/T delineation indices from the signals DataFrame.
                 # NeuroKit2 delineation columns are binary (1 = peak, 0 or NaN = no peak);
                 # fillna(0) correctly treats NaN (undetected) as 0 before the == 1 test.
+                extracted_counts: dict[str, int] = {}
                 for col, attr in [
                     ("ECG_P_Peaks", "p_peak_indices"),
                     ("ECG_Q_Peaks", "q_peak_indices"),
@@ -668,10 +676,55 @@ class ECGOfflineProcessor:
                 ]:
                     if col in signals_df.columns:
                         vals = np.asarray(signals_df[col].fillna(0), dtype=float)
-                        setattr(result, attr, np.where(vals == 1)[0].tolist())
+                        idx = np.where(vals == 1)[0].tolist()
+                        setattr(result, attr, idx)
+                        extracted_counts[attr] = len(idx)
+                    else:
+                        extracted_counts[attr] = 0
+                        frozen_debug_log.warning(
+                            "delineation column missing from nk.ecg_process output: %s",
+                            col,
+                        )
+                if extracted_counts and not any(extracted_counts.values()) and result.r_peak_indices:
+                    frozen_debug_log.warning(
+                        "delineation fallback: ecg_process yielded zero P/Q/S/T markers; running nk.ecg_delineate"
+                    )
+                    try:
+                        _, waves = nk.ecg_delineate(
+                            result.filtered_signal,
+                            rpeaks=np.asarray(result.r_peak_indices, dtype=int),
+                            sampling_rate=int(round(self.sample_rate)),
+                            method="dwt",
+                            show=False,
+                        )
+                        for waves_key, attr in [
+                            ("ECG_P_Peaks", "p_peak_indices"),
+                            ("ECG_Q_Peaks", "q_peak_indices"),
+                            ("ECG_S_Peaks", "s_peak_indices"),
+                            ("ECG_T_Peaks", "t_peak_indices"),
+                        ]:
+                            idx = _finite_int_indices(np.asarray(waves.get(waves_key, []), dtype=float))
+                            setattr(result, attr, idx)
+                            extracted_counts[attr] = len(idx)
+                    except (ValueError, RuntimeError, TypeError) as exc:
+                        frozen_debug_log.exception("nk.ecg_delineate fallback failed: %s", exc)
+                frozen_debug_log.debug(
+                    "delineation end: r_peaks=%d p=%d q=%d s=%d t=%d",
+                    len(result.r_peak_indices),
+                    extracted_counts.get("p_peak_indices", 0),
+                    extracted_counts.get("q_peak_indices", 0),
+                    extracted_counts.get("s_peak_indices", 0),
+                    extracted_counts.get("t_peak_indices", 0),
+                )
                 return result
             except Exception as exc:
+                frozen_debug_log.exception("nk.ecg_process pipeline failed; using manual fallback: %s", exc)
                 log.warning("nk.ecg_process failed (%s); using manual pipeline.", exc)
+        else:
+            frozen_debug_log.warning(
+                "delineation skipped: neurokit2 unavailable (frozen=%s)",
+                bool(getattr(sys, "frozen", False)),
+            )
 
         # Manual pipeline (NeuroKit2 absent or raised an exception)
         filtered = ECGCleaningFilter.clean(
@@ -700,6 +753,15 @@ class ECGOfflineProcessor:
 # ---------------------------------------------------------------------------
 # Utility: convert peak indices → instantaneous HR
 # ---------------------------------------------------------------------------
+
+def _finite_int_indices(values: np.ndarray) -> list[int]:
+    """Return finite integer sample indices from a NeuroKit2 wave output array."""
+    vals = np.asarray(values, dtype=float)
+    if vals.size == 0:
+        return []
+    vals = vals[np.isfinite(vals)]
+    return vals.astype(int).tolist()
+
 
 def _peaks_to_hr(
     peak_indices: list[int],

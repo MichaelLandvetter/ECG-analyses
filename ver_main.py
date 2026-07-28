@@ -96,6 +96,7 @@ from ver_analysis_engine import (       # REPLACEMENT BOUNDARY — see ver_analy
 from ecg_scope import ECGScopeProcessor  # REPLACEMENT BOUNDARY (transitional placeholder)
 
 log = logging.getLogger(__name__)
+frozen_debug_log = logging.getLogger("ver.frozen_debug")
 ARTIFACT_THRESHOLD_MIN_UV = 0.0001
 _PRE_REPORT_BEAT_BEFORE_S = 0.25
 _PRE_REPORT_BEAT_AFTER_S = 0.45
@@ -127,6 +128,10 @@ _PRE_TITLE_HR_FOCUSED = (
 _PRE_TITLE_BEATS_FOCUSED = (
     "Individual beats + average beat \u00b7 double-click to restore"
 )
+# Marker styling tuned for dark-theme visibility in the pre-report beats panel.
+_BEAT_MARKER_SYMBOL_SIZE = 5
+_BEAT_MARKER_ALPHA = 220
+_BEAT_MARKER_OUTLINE_RGBA = (20, 20, 20, 220)
 
 
 def _refresh_runtime_classifier_settings(classifier_cfg: dict | None) -> None:
@@ -516,7 +521,6 @@ class ECGPreReportDialog(QDialog):
         self.plot_beats.setLabel("bottom", "Time around R-peak", "ms")
         self.plot_beats.setLabel("left", "Amplitude")
         _vb_beats.setMouseEnabled(x=True, y=True)
-        self.plot_beats.addLegend(offset=(10, 10))
         layout.addWidget(self.plot_beats, stretch=1)
 
         self._beats_info_label = QLabel("")
@@ -535,6 +539,11 @@ class ECGPreReportDialog(QDialog):
         self._populate_plots()
 
     def _populate_plots(self) -> None:
+        frozen_debug_log.debug(
+            "pre-report populate_plots start: frozen=%s report_keys=%s",
+            getattr(sys, "frozen", False),
+            sorted(self._report_data.keys()),
+        )
         fs = float(self._report_data["sample_rate"])
         raw = np.asarray(self._report_data["raw_signal"], dtype=float)
         filt = np.asarray(self._report_data["filtered_signal"], dtype=float)
@@ -586,14 +595,24 @@ class ECGPreReportDialog(QDialog):
         if beat_segments:
             beats = np.vstack(beat_segments)
             beat_t_ms = (np.arange(beats.shape[1], dtype=float) - pre_n) * (1000.0 / fs)
+            first_beat_plot_item = None
             for i, beat in enumerate(beats):
-                self.plot_beats.plot(
-                    beat_t_ms, beat,
+                item = self.plot_beats.plot(
+                    beat_t_ms,
+                    beat,
                     pen=pg.mkPen((120, 120, 120, 80), width=1),
-                    name="Individual beats" if i == 0 else None,
+                    name=None,
                 )
+                if i == 0:
+                    first_beat_plot_item = item
             mean_beat = np.mean(beats, axis=0)
-            self.plot_beats.plot(beat_t_ms, mean_beat, pen=pg.mkPen((255, 220, 0), width=3), name="Average beat")
+            mean_item = self.plot_beats.plot(
+                beat_t_ms,
+                mean_beat,
+                pen=pg.mkPen((255, 220, 0), width=3),
+                name=None,
+            )
+            mean_item.setZValue(10)
 
             # Overlay P/Q/S/T landmark markers aligned to each beat window.
             # Each wave type: (report_data key, RGB colour tuple, legend label)
@@ -604,9 +623,15 @@ class ECGPreReportDialog(QDialog):
                 ("t_peak_indices", ( 60, 220, 160), "T"),
             ]
             t_min_ms, t_max_ms = beat_t_ms[0], beat_t_ms[-1]
+            marker_items: list[tuple[pg.PlotDataItem, str]] = []
             for wave_key, color, wave_label in wave_specs:
                 wave_idx = np.asarray(
                     self._report_data.get(wave_key, []), dtype=int
+                )
+                frozen_debug_log.debug(
+                    "individual-beat markers source %s count=%d",
+                    wave_key,
+                    int(wave_idx.size),
                 )
                 if wave_idx.size == 0:
                     continue
@@ -625,22 +650,75 @@ class ECGPreReportDialog(QDialog):
                             w_t_ms.append(t_rel)
                             w_amp.append(float(filt[w]))
                 if w_t_ms:
-                    self.plot_beats.plot(
-                        w_t_ms, w_amp,
-                        pen=None,
-                        symbol="o",
-                        symbolSize=5,
-                        symbolBrush=pg.mkBrush(*color, 200),
-                        symbolPen=pg.mkPen(None),
-                        name=wave_label,
-                    )
+                    try:
+                        marker_item = self.plot_beats.plot(
+                            w_t_ms,
+                            w_amp,
+                            pen=None,
+                            symbol="o",
+                            symbolSize=_BEAT_MARKER_SYMBOL_SIZE,
+                            symbolBrush=pg.mkBrush(*color, _BEAT_MARKER_ALPHA),
+                            symbolPen=pg.mkPen(*_BEAT_MARKER_OUTLINE_RGBA),
+                            name=None,
+                        )
+                        marker_item.setZValue(20)
+                        marker_items.append((marker_item, wave_label))
+                        frozen_debug_log.debug(
+                            "marker item created: label=%s plotted_points=%d",
+                            wave_label,
+                            len(w_t_ms),
+                        )
+                    except (TypeError, ValueError) as exc:
+                        frozen_debug_log.exception(
+                            "marker creation failed for %s with %d points: %s",
+                            wave_label,
+                            len(w_t_ms),
+                            exc,
+                        )
+                else:
+                    frozen_debug_log.debug("marker item skipped: label=%s no in-window points", wave_label)
+
+            legend = self.plot_beats.plotItem.legend
+            if legend is not None:
+                try:
+                    # Remove stale legend instance before deterministic rebuild.
+                    # Recreating the legend avoids stale entries across redraws.
+                    legend.scene().removeItem(legend)
+                    self.plot_beats.plotItem.legend = None
+                except RuntimeError as exc:
+                    frozen_debug_log.exception("legend removal failed before rebuild: %s", exc)
+            try:
+                legend = self.plot_beats.addLegend(offset=(10, 10))
+                if first_beat_plot_item is not None:
+                    legend.addItem(first_beat_plot_item, "Individual beats")
+                legend.addItem(mean_item, "Average beat")
+                for marker_item, wave_label in marker_items:
+                    legend.addItem(marker_item, wave_label)
+                frozen_debug_log.debug(
+                    "legend built: has_individual=%s marker_labels=%s",
+                    first_beat_plot_item is not None,
+                    [label for _, label in marker_items],
+                )
+            except RuntimeError as exc:
+                frozen_debug_log.exception("legend creation failed: %s", exc)
 
             self._beats_info_label.setText(
                 f"Individual beats shown: {beats.shape[0]}  |  Mean beat overlay in gold."
             )
+            frozen_debug_log.debug(
+                "pre-report populate_plots complete: beats=%d markers=%d",
+                beats.shape[0],
+                len(marker_items),
+            )
         else:
             self._beats_info_label.setText(
                 "Individual beats panel unavailable for this run (not enough complete R-peak windows)."
+            )
+            frozen_debug_log.warning(
+                "individual-beat plot skipped: no complete windows (peaks=%d pre_n=%d post_n=%d)",
+                len(peak_idx),
+                pre_n,
+                post_n,
             )
 
     def _toggle_focus(self, panel_idx: int) -> None:

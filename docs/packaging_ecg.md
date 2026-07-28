@@ -151,6 +151,21 @@ certificate.
 Set `console=False` in `ecg.spec` (already the default).  If you need console
 output for debugging, temporarily set `console=True` and rebuild.
 
+### EXE shows beats panel without legend or P/Q/S/T markers
+
+The application now writes a focused diagnostics log for this path:
+
+- Primary location: next to `ECG_Analysis.exe` as `ecg_frozen_debug.log`
+- Fallback location: `%USERPROFILE%\.ecg_analyses\ecg_frozen_debug.log`
+
+Run the EXE, open the pre-report dialog, then inspect that file for:
+
+- startup mode (`sys.frozen=True/False`),
+- delineation start/end and P/Q/S/T marker counts,
+- marker item creation success/failures,
+- legend creation success/failures,
+- full tracebacks if plotting/delineation exceptions occur.
+
 ---
 
 ## Auto-py-to-exe (GUI alternative)
