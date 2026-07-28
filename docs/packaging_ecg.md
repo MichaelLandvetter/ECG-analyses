@@ -44,7 +44,7 @@ transitively and includes only the discovered modules.
 | `ver_settings.py`, `ver_logging.py`, `ver_analysis_flow.py`, `ver_preflight.py` | Imported by `ver_main.py` |
 | `ver_analysis_engine.py`, `ver_peaks.py`, `ver_report.py`, `ver_classifier.py` | Transitively imported |
 | `ver_wavelet.py`, `ver_ml_logger.py`, `ver_scope.py`, `ver_downsample.py` | Imported by `ver_main.py` |
-| `ver_constants.py` | Imported by a transitional module |
+| `ver_constants.py` | Imported by a transitive module |
 
 ### What is NOT bundled (auto-excluded)
 

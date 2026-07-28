@@ -110,22 +110,22 @@ _FILTER_MODES_WITH_LOW_HIGH = {
 
 # Pre-report dialog panel titles — shown when layout is normal vs. focused.
 _PRE_TITLE_ECG_NORMAL = (
-    "Full ECG \u2014 raw + filtered + R-peaks  \u00b7 double-click to enlarge"
+    "Full ECG \u2014 raw + filtered + R-peaks \u00b7 double-click to enlarge"
 )
 _PRE_TITLE_HR_NORMAL = (
-    "Heart Rate (full duration)  \u00b7 double-click to enlarge"
+    "Heart Rate (full duration) \u00b7 double-click to enlarge"
 )
 _PRE_TITLE_BEATS_NORMAL = (
-    "Individual beats + average beat  \u00b7 double-click to enlarge"
+    "Individual beats + average beat \u00b7 double-click to enlarge"
 )
 _PRE_TITLE_ECG_FOCUSED = (
-    "Full ECG \u2014 raw + filtered + R-peaks  \u00b7 double-click to restore"
+    "Full ECG \u2014 raw + filtered + R-peaks \u00b7 double-click to restore"
 )
 _PRE_TITLE_HR_FOCUSED = (
-    "Heart Rate (full duration)  \u00b7 double-click to restore"
+    "Heart Rate (full duration) \u00b7 double-click to restore"
 )
 _PRE_TITLE_BEATS_FOCUSED = (
-    "Individual beats + average beat  \u00b7 double-click to restore"
+    "Individual beats + average beat \u00b7 double-click to restore"
 )
 
 
@@ -649,6 +649,10 @@ class ECGPreReportDialog(QDialog):
         Double-click any graph panel to expand it to fill the graph area and
         hide the other two panels.  Double-click the same panel again to restore
         the normal three-panel layout.
+
+        Args:
+            panel_idx: Zero-based index of the panel being toggled.
+                0 = Full ECG panel, 1 = Heart Rate panel, 2 = Individual beats panel.
         """
         panels = [self.plot_ecg, self.plot_hr, self.plot_beats]
         normal_titles = [_PRE_TITLE_ECG_NORMAL, _PRE_TITLE_HR_NORMAL, _PRE_TITLE_BEATS_NORMAL]
