@@ -870,9 +870,9 @@ class VERMainWindow(QMainWindow):
         # --- Box 4 R-peak Detection Combo (mirrors ECG Processing Settings detector) ---
         self.box4_detector_combo = QComboBox()
         self.box4_detector_combo.addItems(ECG_DETECTOR_METHODS)
-        _saved_det_b4 = self._ecg_proc_cfg.get("detector_method", ECG_DETECTOR_DEFAULT)
-        if _saved_det_b4 in ECG_DETECTOR_METHODS:
-            self.box4_detector_combo.setCurrentText(_saved_det_b4)
+        _saved_detector = self._ecg_proc_cfg.get("detector_method", ECG_DETECTOR_DEFAULT)
+        if _saved_detector in ECG_DETECTOR_METHODS:
+            self.box4_detector_combo.setCurrentText(_saved_detector)
         else:
             self.box4_detector_combo.setCurrentText(ECG_DETECTOR_DEFAULT)
         self.box4_detector_combo.setToolTip(
@@ -1533,11 +1533,20 @@ class VERMainWindow(QMainWindow):
         log.info("ECG processing settings saved: %s", self._ecg_proc_cfg)
 
     def _sync_detector_from_box4(self, text: str) -> None:
-        """Keep the ECG Processing Settings detector combo in sync with Box 4."""
+        """Keep the ECG Processing Settings detector combo in sync with Box 4.
+
+        Also updates the live processing config so the new method takes effect
+        on the next analysis run without requiring a manual Settings save.
+        """
         if self.detector_combo.currentText() != text:
             self.detector_combo.blockSignals(True)
             self.detector_combo.setCurrentText(text)
             self.detector_combo.blockSignals(False)
+        # Apply immediately to the active config and rebuild processors
+        if self._ecg_proc_cfg.get("detector_method") != text:
+            self._ecg_proc_cfg["detector_method"] = text
+            self._ecg_rolling = self._build_ecg_rolling_processor()
+            self._ecg_offline = self._build_ecg_offline_processor()
 
     def _sync_detector_from_settings(self, text: str) -> None:
         """Keep the Box 4 detector combo in sync with the ECG Processing Settings tab."""
