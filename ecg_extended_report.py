@@ -48,6 +48,8 @@ _S_SEARCH_FAR_S: float = 0.12
 # T wave: expected 50 ms to 500 ms AFTER the R-peak
 _T_SEARCH_NEAR_S: float = 0.05
 _T_SEARCH_FAR_S: float = 0.50
+_TEMPLATE_BEFORE_S: float = 0.25
+_TEMPLATE_AFTER_S: float = 0.45
 
 log = logging.getLogger(__name__)
 
@@ -358,7 +360,8 @@ def sanitize_output_stem(stem: str | None, fallback: str = "ecg_analysis") -> st
     return safe or fallback
 
 
-def _nearest_waves_for_r(r: int, fs: float, p_idx: np.ndarray, q_idx: np.ndarray, s_idx: np.ndarray, t_idx: np.ndarray) -> tuple[int | None, int | None, int | None, int | None]:
+def _find_nearest_pqst_peaks_for_r_peak(r: int, fs: float, p_idx: np.ndarray, q_idx: np.ndarray, s_idx: np.ndarray, t_idx: np.ndarray) -> tuple[int | None, int | None, int | None, int | None]:
+    """Return nearest plausible P/Q/S/T sample indices for one R-peak."""
     _p_far = int(round(_P_SEARCH_FAR_S * fs))
     _p_near = int(round(_P_SEARCH_NEAR_S * fs))
     _q_far = int(round(_Q_SEARCH_FAR_S * fs))
@@ -372,6 +375,11 @@ def _nearest_waves_for_r(r: int, fs: float, p_idx: np.ndarray, q_idx: np.ndarray
     s = _find_nearest_wave(s_idx, r, r + _s_near, r + _s_far)
     t = _find_nearest_wave(t_idx, r, r + _t_near, r + _t_far)
     return p, q, s, t
+
+
+def _to_nan_text_or_value(value: int | None) -> int | str:
+    """Convert missing sample landmarks to ``'NaN'`` text for CSV output."""
+    return value if value is not None else "NaN"
 
 
 def _write_continuous_time_series_csv(report_data: dict, out_path: Path) -> None:
@@ -448,26 +456,26 @@ def _write_beat_morphology_csv(report_data: dict, out_path: Path) -> None:
         )
         prev_r: int | None = None
         for beat_no, r in enumerate(r_peaks.tolist(), start=1):
-            p, q, s, t = _nearest_waves_for_r(int(r), fs, p_idx, q_idx, s_idx, t_idx)
+            p, q, s, t = _find_nearest_pqst_peaks_for_r_peak(int(r), fs, p_idx, q_idx, s_idx, t_idx)
 
-            rr_ms = np.nan if prev_r is None else ((r - prev_r) * 1000.0 / fs)
-            pr_ms = np.nan if p is None else ((r - p) * 1000.0 / fs)
-            qrs_ms = np.nan
+            rr_ms = "NaN" if prev_r is None else f"{((r - prev_r) * 1000.0 / fs):.6f}"
+            pr_ms = "NaN" if p is None else f"{((r - p) * 1000.0 / fs):.6f}"
+            qrs_ms: str = "NaN"
             if q is not None and s is not None and s > q:
-                qrs_ms = (s - q) * 1000.0 / fs
-            qt_ms = np.nan
+                qrs_ms = f"{((s - q) * 1000.0 / fs):.6f}"
+            qt_ms: str = "NaN"
             if q is not None and t is not None and t > q:
-                qt_ms = (t - q) * 1000.0 / fs
+                qt_ms = f"{((t - q) * 1000.0 / fs):.6f}"
 
             writer.writerow(
                 [
                     beat_no,
                     int(r),
                     f"{(r / fs):.6f}",
-                    p if p is not None else np.nan,
-                    q if q is not None else np.nan,
-                    s if s is not None else np.nan,
-                    t if t is not None else np.nan,
+                    _to_nan_text_or_value(p),
+                    _to_nan_text_or_value(q),
+                    _to_nan_text_or_value(s),
+                    _to_nan_text_or_value(t),
                     rr_ms,
                     pr_ms,
                     qrs_ms,
@@ -493,7 +501,7 @@ def _write_hrv_summary_csv(report_data: dict, out_path: Path) -> None:
             for col in hrv_df.columns:
                 val = hrv_df[col].iloc[0]
                 if val is None or (isinstance(val, float) and np.isnan(val)):
-                    row[col] = np.nan
+                    row[col] = ""
                 else:
                     row[col] = val
         except Exception as exc:
@@ -514,10 +522,8 @@ def _write_average_template_csv(report_data: dict, out_path: Path) -> None:
     filt = np.asarray(report_data.get("filtered_signal", []), dtype=float)
     r_peaks = np.asarray(report_data.get("r_peak_indices", []), dtype=int)
 
-    before_s = 0.25
-    after_s = 0.45
-    before_n = int(round(before_s * fs))
-    after_n = int(round(after_s * fs))
+    before_n = int(round(_TEMPLATE_BEFORE_S * fs))
+    after_n = int(round(_TEMPLATE_AFTER_S * fs))
     win_len = before_n + after_n + 1
 
     beats: list[np.ndarray] = []
@@ -534,6 +540,7 @@ def _write_average_template_csv(report_data: dict, out_path: Path) -> None:
     if beats:
         stacked = np.vstack(beats)
         mean_amp = np.mean(stacked, axis=0)
+        # Standard deviation across all segmented beats included in the template.
         std_amp = np.std(stacked, axis=0, ddof=0)
     else:
         mean_amp = np.full(win_len, np.nan, dtype=float)
@@ -543,7 +550,9 @@ def _write_average_template_csv(report_data: dict, out_path: Path) -> None:
         writer = csv.writer(fh)
         writer.writerow(["Relative_Time_Sec", "Mean_Amplitude_mV", "Std_Dev_mV"])
         for i in range(win_len):
-            writer.writerow([f"{rel_time_s[i]:.6f}", mean_amp[i], std_amp[i]])
+            mean_val = "NaN" if np.isnan(mean_amp[i]) else f"{mean_amp[i]:.9f}"
+            std_val = "NaN" if np.isnan(std_amp[i]) else f"{std_amp[i]:.9f}"
+            writer.writerow([f"{rel_time_s[i]:.6f}", mean_val, std_val])
 
 
 def save_neurokit2_report_set(report_data: dict, out_dir: Path, output_stem: str | None = None) -> dict[str, Path | None]:
@@ -555,8 +564,15 @@ def save_neurokit2_report_set(report_data: dict, out_dir: Path, output_stem: str
     Files:
     - ``*_ecg_continuous_time_series.csv``: continuous raw/clean/rate/quality/R-markers
     - ``*_ecg_beat_morphology_landmarks.csv``: beat-wise morphology landmarks + intervals
-    - ``*_ecg_hrv_summary_metrics.csv``: NeuroKit2 HRV summary from this run context
+    - ``*_ecg_hrv_summary_metrics.csv``: NeuroKit2 HRV summary for this analyzed recording
     - ``*_ecg_average_template_wave.csv``: average beat template (mean/std wave)
+
+    Returns
+    -------
+    dict[str, Path | None]
+        Mapping for ``continuous``, ``morphology``, ``hrv_summary``, and
+        ``average_template`` to written ``Path`` values, or ``None`` if a file
+        failed to write.
     """
     stem = sanitize_output_stem(output_stem or str(report_data.get("output_prefix", "")))
     paths = {
