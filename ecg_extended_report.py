@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,8 @@ _S_SEARCH_FAR_S: float = 0.12
 # T wave: expected 50 ms to 500 ms AFTER the R-peak
 _T_SEARCH_NEAR_S: float = 0.05
 _T_SEARCH_FAR_S: float = 0.50
+_TEMPLATE_BEFORE_S: float = 0.25
+_TEMPLATE_AFTER_S: float = 0.45
 
 log = logging.getLogger(__name__)
 
@@ -346,3 +349,252 @@ def save_extended_nk_summary_csv(report_data: dict, out_path: Path) -> None:
         writer.writeheader()
         writer.writerow(metrics)
     log.info("Extended NeuroKit2 summary CSV written: %s", out_path)
+
+
+def sanitize_output_stem(stem: str | None, fallback: str = "ecg_analysis") -> str:
+    """Return a filesystem-safe output stem with a stable fallback."""
+    base = (stem or "").strip()
+    if not base:
+        return fallback
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("._-")
+    return safe or fallback
+
+
+def _find_nearest_pqst_peaks_for_r_peak(r: int, fs: float, p_idx: np.ndarray, q_idx: np.ndarray, s_idx: np.ndarray, t_idx: np.ndarray) -> tuple[int | None, int | None, int | None, int | None]:
+    """Return nearest plausible P/Q/S/T sample indices for one R-peak."""
+    _p_far = int(round(_P_SEARCH_FAR_S * fs))
+    _p_near = int(round(_P_SEARCH_NEAR_S * fs))
+    _q_far = int(round(_Q_SEARCH_FAR_S * fs))
+    _q_near = int(round(_Q_SEARCH_NEAR_S * fs))
+    _s_near = int(round(_S_SEARCH_NEAR_S * fs))
+    _s_far = int(round(_S_SEARCH_FAR_S * fs))
+    _t_near = int(round(_T_SEARCH_NEAR_S * fs))
+    _t_far = int(round(_T_SEARCH_FAR_S * fs))
+    p = _find_nearest_wave(p_idx, r, r - _p_far, r - _p_near)
+    q = _find_nearest_wave(q_idx, r, r - _q_far, r - _q_near)
+    s = _find_nearest_wave(s_idx, r, r + _s_near, r + _s_far)
+    t = _find_nearest_wave(t_idx, r, r + _t_near, r + _t_far)
+    return p, q, s, t
+
+
+def _to_nan_text_or_value(value: int | None) -> int | str:
+    """Convert missing sample landmarks to ``'NaN'`` text for CSV output."""
+    return value if value is not None else "NaN"
+
+
+def _write_continuous_time_series_csv(report_data: dict, out_path: Path) -> None:
+    fs = float(report_data["sample_rate"])
+    raw = np.asarray(report_data["raw_signal"], dtype=float)
+    filt = np.asarray(report_data["filtered_signal"], dtype=float)
+    hr_times = np.asarray(report_data.get("hr_times_s", []), dtype=float)
+    hr_bpm = np.asarray(report_data.get("hr_bpm", []), dtype=float)
+    peak_idx = np.asarray(report_data.get("r_peak_indices", []), dtype=int)
+    quality = np.asarray(report_data.get("signal_quality", []), dtype=float)
+    if quality.size != raw.size:
+        quality = np.full(raw.size, np.nan, dtype=float)
+
+    time_s = np.arange(raw.size, dtype=float) / fs
+    hr_per_sample = np.full(raw.size, np.nan, dtype=float)
+    if hr_times.size and hr_bpm.size:
+        indices = np.round(hr_times * fs).astype(int)
+        valid_mask = (indices >= 0) & (indices < raw.size)
+        hr_per_sample[indices[valid_mask]] = hr_bpm[valid_mask]
+
+    r_indicator = np.zeros(raw.size, dtype=int)
+    valid_peaks = peak_idx[(peak_idx >= 0) & (peak_idx < raw.size)]
+    r_indicator[valid_peaks] = 1
+
+    with out_path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(
+            [
+                "Time_Seconds",
+                "ECG_Raw",
+                "ECG_Clean",
+                "Heart_Rate_BPM",
+                "Signal_Quality",
+                "R_Peak_Indicator",
+            ]
+        )
+        for i in range(raw.size):
+            writer.writerow(
+                [
+                    f"{time_s[i]:.6f}",
+                    f"{raw[i]:.9f}",
+                    f"{filt[i]:.9f}",
+                    "" if np.isnan(hr_per_sample[i]) else f"{hr_per_sample[i]:.6f}",
+                    "" if np.isnan(quality[i]) else f"{quality[i]:.6f}",
+                    int(r_indicator[i]),
+                ]
+            )
+
+
+def _write_beat_morphology_csv(report_data: dict, out_path: Path) -> None:
+    fs = float(report_data["sample_rate"])
+    r_peaks = np.asarray(report_data.get("r_peak_indices", []), dtype=int)
+    p_idx = np.asarray(report_data.get("p_peak_indices", []), dtype=int)
+    q_idx = np.asarray(report_data.get("q_peak_indices", []), dtype=int)
+    s_idx = np.asarray(report_data.get("s_peak_indices", []), dtype=int)
+    t_idx = np.asarray(report_data.get("t_peak_indices", []), dtype=int)
+
+    with out_path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(
+            [
+                "Beat_Number",
+                "R_Peak_Sample",
+                "R_Peak_Time_Sec",
+                "P_Peak_Sample",
+                "Q_Peak_Sample",
+                "S_Peak_Sample",
+                "T_Peak_Sample",
+                "RR_Interval_ms",
+                "PR_Interval_ms",
+                "QRS_Duration_ms",
+                "QT_Interval_ms",
+            ]
+        )
+        prev_r: int | None = None
+        for beat_no, r in enumerate(r_peaks.tolist(), start=1):
+            p, q, s, t = _find_nearest_pqst_peaks_for_r_peak(int(r), fs, p_idx, q_idx, s_idx, t_idx)
+
+            rr_ms = "NaN" if prev_r is None else f"{((r - prev_r) * 1000.0 / fs):.6f}"
+            pr_ms = "NaN" if p is None else f"{((r - p) * 1000.0 / fs):.6f}"
+            qrs_ms: str = "NaN"
+            if q is not None and s is not None and s > q:
+                qrs_ms = f"{((s - q) * 1000.0 / fs):.6f}"
+            qt_ms: str = "NaN"
+            if q is not None and t is not None and t > q:
+                qt_ms = f"{((t - q) * 1000.0 / fs):.6f}"
+
+            writer.writerow(
+                [
+                    beat_no,
+                    int(r),
+                    f"{(r / fs):.6f}",
+                    _to_nan_text_or_value(p),
+                    _to_nan_text_or_value(q),
+                    _to_nan_text_or_value(s),
+                    _to_nan_text_or_value(t),
+                    rr_ms,
+                    pr_ms,
+                    qrs_ms,
+                    qt_ms,
+                ]
+            )
+            prev_r = int(r)
+
+
+def _write_hrv_summary_csv(report_data: dict, out_path: Path) -> None:
+    fs = float(report_data["sample_rate"])
+    r_peaks = np.asarray(report_data.get("r_peak_indices", []), dtype=int)
+    row: dict[str, Any] = {
+        "Source_Label": str(report_data.get("source_label", "")),
+        "Sample_Rate_Hz": fs,
+        "Beat_Count": int(r_peaks.size),
+    }
+
+    if _NK_AVAILABLE and r_peaks.size >= 4:
+        try:
+            fs_int = int(round(fs))
+            hrv_df = nk.hrv(r_peaks, sampling_rate=fs_int, show=False)
+            for col in hrv_df.columns:
+                val = hrv_df[col].iloc[0]
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    row[col] = ""
+                else:
+                    row[col] = val
+        except Exception as exc:
+            log.warning("HRV summary export failed to compute nk.hrv metrics: %s", exc)
+    elif not _NK_AVAILABLE:
+        log.debug("HRV summary export: NeuroKit2 unavailable.")
+    else:
+        log.debug("HRV summary export: too few beats (%d).", int(r_peaks.size))
+
+    with out_path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(row.keys()))
+        writer.writeheader()
+        writer.writerow(row)
+
+
+def _write_average_template_csv(report_data: dict, out_path: Path) -> None:
+    fs = float(report_data["sample_rate"])
+    filt = np.asarray(report_data.get("filtered_signal", []), dtype=float)
+    r_peaks = np.asarray(report_data.get("r_peak_indices", []), dtype=int)
+
+    before_n = int(round(_TEMPLATE_BEFORE_S * fs))
+    after_n = int(round(_TEMPLATE_AFTER_S * fs))
+    win_len = before_n + after_n + 1
+
+    beats: list[np.ndarray] = []
+    for r in r_peaks.tolist():
+        start = int(r) - before_n
+        end = int(r) + after_n + 1
+        if start < 0 or end > filt.size:
+            continue
+        beat = filt[start:end]
+        if beat.size == win_len:
+            beats.append(beat)
+
+    rel_time_s = (np.arange(win_len, dtype=float) - before_n) / fs
+    if beats:
+        stacked = np.vstack(beats)
+        mean_amp = np.mean(stacked, axis=0)
+        # Standard deviation across all segmented beats included in the template.
+        std_amp = np.std(stacked, axis=0, ddof=0)
+    else:
+        mean_amp = np.full(win_len, np.nan, dtype=float)
+        std_amp = np.full(win_len, np.nan, dtype=float)
+
+    with out_path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["Relative_Time_Sec", "Mean_Amplitude_mV", "Std_Dev_mV"])
+        for i in range(win_len):
+            mean_val = "NaN" if np.isnan(mean_amp[i]) else f"{mean_amp[i]:.9f}"
+            std_val = "NaN" if np.isnan(std_amp[i]) else f"{std_amp[i]:.9f}"
+            writer.writerow([f"{rel_time_s[i]:.6f}", mean_val, std_val])
+
+
+def save_neurokit2_report_set(report_data: dict, out_dir: Path, output_stem: str | None = None) -> dict[str, Path | None]:
+    """Write the 4-file NeuroKit2 ECG report set using source-stem naming.
+
+    The stem is derived from the analyzed source file label/prefix (sanitized),
+    with ``ecg_analysis`` fallback when unavailable.
+
+    Files:
+    - ``*_ecg_continuous_time_series.csv``: continuous raw/clean/rate/quality/R-markers
+    - ``*_ecg_beat_morphology_landmarks.csv``: beat-wise morphology landmarks + intervals
+    - ``*_ecg_hrv_summary_metrics.csv``: NeuroKit2 HRV summary for this analyzed recording
+    - ``*_ecg_average_template_wave.csv``: average beat template (mean/std wave)
+
+    Returns
+    -------
+    dict[str, Path | None]
+        Mapping for ``continuous``, ``morphology``, ``hrv_summary``, and
+        ``average_template`` to written ``Path`` values, or ``None`` if a file
+        failed to write.
+    """
+    stem = sanitize_output_stem(output_stem or str(report_data.get("output_prefix", "")))
+    paths = {
+        "continuous": out_dir / f"{stem}_ecg_continuous_time_series.csv",
+        "morphology": out_dir / f"{stem}_ecg_beat_morphology_landmarks.csv",
+        "hrv_summary": out_dir / f"{stem}_ecg_hrv_summary_metrics.csv",
+        "average_template": out_dir / f"{stem}_ecg_average_template_wave.csv",
+    }
+    writers = {
+        "continuous": _write_continuous_time_series_csv,
+        "morphology": _write_beat_morphology_csv,
+        "hrv_summary": _write_hrv_summary_csv,
+        "average_template": _write_average_template_csv,
+    }
+    written: dict[str, Path | None] = {}
+    for key, writer in writers.items():
+        path = paths[key]
+        try:
+            writer(report_data, path)
+            log.info("ECG report CSV written: %s", path)
+            written[key] = path
+        except Exception as exc:
+            log.warning("ECG report CSV (%s) could not be written: %s", key, exc)
+            written[key] = None
+    return written

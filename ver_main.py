@@ -14,7 +14,6 @@ a backward-compatibility shim that delegates to ``ecg_main.main()``.
 from __future__ import annotations
 
 import logging
-import csv
 import shutil
 import sys
 import time
@@ -65,7 +64,7 @@ from ecg_pipeline import (
     ECG_DETECTOR_DEFAULT,
 )
 from ecg_config import ECG_PROCESSING_CONFIG
-from ecg_extended_report import save_extended_nk_summary_csv
+from ecg_extended_report import save_neurokit2_report_set
 
 # --- Generic infrastructure (keep for ECG) ---
 from ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
@@ -1843,7 +1842,7 @@ class VERMainWindow(QMainWindow):
         )
 
     def _save_pre_report_csvs(self, report_data: dict) -> None:
-        """Save continuous and beat-by-beat CSV outputs from pre-report data."""
+        """Save the separated 4-file ECG CSV report set."""
         default_dir = str(report_data.get("output_dir", Path.cwd()))
         selected_dir = QFileDialog.getExistingDirectory(
             self,
@@ -1855,68 +1854,15 @@ class VERMainWindow(QMainWindow):
 
         out_dir = Path(selected_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        prefix = str(report_data.get("output_prefix", "ecg_analysis"))
-
-        fs = float(report_data["sample_rate"])
-        raw = np.asarray(report_data["raw_signal"], dtype=float)
-        filt = np.asarray(report_data["filtered_signal"], dtype=float)
-        hr_times = np.asarray(report_data["hr_times_s"], dtype=float)
-        hr_bpm = np.asarray(report_data["hr_bpm"], dtype=float)
-        peak_idx = np.asarray(report_data["r_peak_indices"], dtype=int)
-
-        continuous_path = out_dir / f"{prefix}_continuous_signals.csv"
-        beat_path = out_dir / f"{prefix}_beat_summary.csv"
-
-        time_s = np.arange(raw.size, dtype=float) / fs
-        hr_per_sample = np.full(raw.size, np.nan, dtype=float)
-        if hr_times.size and hr_bpm.size:
-            indices = np.round(hr_times * fs).astype(int)
-            valid_mask = (indices >= 0) & (indices < raw.size)
-            hr_per_sample[indices[valid_mask]] = hr_bpm[valid_mask]
-
-        with continuous_path.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["time_s", "raw_ecg", "filtered_ecg", "heart_rate_bpm"])
-            for i in range(raw.size):
-                hr_value = "" if np.isnan(hr_per_sample[i]) else f"{hr_per_sample[i]:.6f}"
-                writer.writerow(
-                    [
-                        f"{time_s[i]:.6f}",
-                        f"{raw[i]:.9f}",
-                        f"{filt[i]:.9f}",
-                        hr_value,
-                    ]
-                )
-
-        with beat_path.open("w", newline="", encoding="utf-8") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["beat_number", "r_peak_index", "r_peak_time_s", "rr_interval_s", "heart_rate_bpm"])
-            prev_idx = None
-            for beat_no, idx in enumerate(peak_idx.tolist(), start=1):
-                t_s = idx / fs
-                if prev_idx is None:
-                    rr_s = ""
-                    bpm = ""
-                else:
-                    rr = (idx - prev_idx) / fs
-                    rr_s = f"{rr:.6f}"
-                    bpm = f"{(60.0 / rr):.2f}" if rr > 0 else ""
-                writer.writerow([beat_no, idx, f"{t_s:.6f}", rr_s, bpm])
-                prev_idx = idx
-
-        # --- Third CSV: extended single-row NeuroKit2 summary ---
-        # Contains HRV (time/frequency/nonlinear), rate stats, and morphology
-        # metrics.  Partial failures are handled gracefully inside the function.
-        extended_path: Path | None = out_dir / f"{prefix}_extended_nk_summary.csv"
-        try:
-            save_extended_nk_summary_csv(report_data, extended_path)
-        except Exception as exc:
-            log.warning("Extended NeuroKit2 summary CSV could not be written: %s", exc)
-            extended_path = None
-
-        saved_names = [continuous_path.name, beat_path.name]
-        if extended_path is not None:
-            saved_names.append(extended_path.name)
+        report_paths = save_neurokit2_report_set(
+            report_data=report_data,
+            out_dir=out_dir,
+            output_stem=str(report_data.get("output_prefix", "")),
+        )
+        saved_names = [path.name for path in report_paths.values() if path is not None]
+        if not saved_names:
+            QMessageBox.warning(self, "Reports not saved", "No CSV files could be written. Check logs for details.")
+            return
         QMessageBox.information(
             self,
             "Reports saved",
