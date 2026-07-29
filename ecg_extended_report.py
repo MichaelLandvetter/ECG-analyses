@@ -382,27 +382,119 @@ def _to_nan_text_or_value(value: int | None) -> int | str:
     return value if value is not None else "NaN"
 
 
+def _get_nk_continuous_series(
+    raw: np.ndarray, fs: float
+) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+    """Run a local nk.ecg_process pass to obtain dense per-sample series.
+
+    Returns a tuple of (ecg_rate, ecg_quality, ecg_r_peaks_indicator) arrays,
+    each aligned to ``raw.size``, or ``None`` for any series that could not be
+    extracted.  Logs explicit reason for any failure or partial result.
+    """
+    if not _NK_AVAILABLE:
+        log.debug(
+            "continuous series: NeuroKit2 unavailable; Heart_Rate_BPM and "
+            "Signal_Quality will be empty."
+        )
+        return None, None, None
+
+    try:
+        fs_int = int(round(fs))
+        signals_df, _ = nk.ecg_process(raw, sampling_rate=fs_int)
+    except Exception as exc:
+        log.warning(
+            "continuous series: nk.ecg_process failed (%s); "
+            "Heart_Rate_BPM and Signal_Quality will be empty.",
+            exc,
+        )
+        return None, None, None
+
+    n = raw.size
+
+    def _extract(col: str) -> np.ndarray | None:
+        if col not in signals_df.columns:
+            log.warning(
+                "continuous series: column %r missing from nk.ecg_process output; "
+                "that series will be empty.",
+                col,
+            )
+            return None
+        arr = np.asarray(signals_df[col], dtype=float)
+        if arr.size != n:
+            log.warning(
+                "continuous series: column %r length %d != signal length %d; "
+                "that series will be empty.",
+                col,
+                arr.size,
+                n,
+            )
+            return None
+        return arr
+
+    ecg_rate = _extract("ECG_Rate")
+    ecg_quality = _extract("ECG_Quality")
+    ecg_r_peaks_raw = _extract("ECG_R_Peaks")
+    if ecg_r_peaks_raw is not None:
+        ecg_r_peaks_indicator = (ecg_r_peaks_raw == 1).astype(int)
+    else:
+        ecg_r_peaks_indicator = None
+
+    return ecg_rate, ecg_quality, ecg_r_peaks_indicator
+
+
 def _write_continuous_time_series_csv(report_data: dict, out_path: Path) -> None:
     fs = float(report_data["sample_rate"])
     raw = np.asarray(report_data["raw_signal"], dtype=float)
     filt = np.asarray(report_data["filtered_signal"], dtype=float)
-    hr_times = np.asarray(report_data.get("hr_times_s", []), dtype=float)
-    hr_bpm = np.asarray(report_data.get("hr_bpm", []), dtype=float)
     peak_idx = np.asarray(report_data.get("r_peak_indices", []), dtype=int)
-    quality = np.asarray(report_data.get("signal_quality", []), dtype=float)
-    if quality.size != raw.size:
-        quality = np.full(raw.size, np.nan, dtype=float)
 
     time_s = np.arange(raw.size, dtype=float) / fs
-    hr_per_sample = np.full(raw.size, np.nan, dtype=float)
-    if hr_times.size and hr_bpm.size:
-        indices = np.round(hr_times * fs).astype(int)
-        valid_mask = (indices >= 0) & (indices < raw.size)
-        hr_per_sample[indices[valid_mask]] = hr_bpm[valid_mask]
 
-    r_indicator = np.zeros(raw.size, dtype=int)
-    valid_peaks = peak_idx[(peak_idx >= 0) & (peak_idx < raw.size)]
-    r_indicator[valid_peaks] = 1
+    # Obtain dense per-sample rate, quality and R-peak series from NeuroKit2.
+    nk_rate, nk_quality, nk_r_peaks = _get_nk_continuous_series(raw, fs)
+
+    # Heart rate: prefer NeuroKit2 continuous series; fall back to beat-level scatter.
+    if nk_rate is not None:
+        hr_per_sample = nk_rate
+    else:
+        hr_times = np.asarray(report_data.get("hr_times_s", []), dtype=float)
+        hr_bpm = np.asarray(report_data.get("hr_bpm", []), dtype=float)
+        hr_per_sample = np.full(raw.size, np.nan, dtype=float)
+        if hr_times.size and hr_bpm.size:
+            indices = np.round(hr_times * fs).astype(int)
+            valid_mask = (indices >= 0) & (indices < raw.size)
+            hr_per_sample[indices[valid_mask]] = hr_bpm[valid_mask]
+        log.debug(
+            "continuous series: using beat-level HR scatter fallback "
+            "(%d values out of %d samples).",
+            int(np.sum(~np.isnan(hr_per_sample))),
+            raw.size,
+        )
+
+    # Signal quality: prefer NeuroKit2 continuous series.
+    if nk_quality is not None:
+        quality = nk_quality
+    else:
+        quality_raw = np.asarray(report_data.get("signal_quality", []), dtype=float)
+        if quality_raw.size == raw.size:
+            quality = quality_raw
+        else:
+            quality = np.full(raw.size, np.nan, dtype=float)
+            if quality_raw.size != 0:
+                log.debug(
+                    "continuous series: signal_quality length %d != signal length %d; "
+                    "Signal_Quality will be empty.",
+                    quality_raw.size,
+                    raw.size,
+                )
+
+    # R-peak indicator: prefer NeuroKit2 binary column; fall back to stored indices.
+    if nk_r_peaks is not None:
+        r_indicator = nk_r_peaks
+    else:
+        r_indicator = np.zeros(raw.size, dtype=int)
+        valid_peaks = peak_idx[(peak_idx >= 0) & (peak_idx < raw.size)]
+        r_indicator[valid_peaks] = 1
 
     with out_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
@@ -522,6 +614,39 @@ def _write_average_template_csv(report_data: dict, out_path: Path) -> None:
     filt = np.asarray(report_data.get("filtered_signal", []), dtype=float)
     r_peaks = np.asarray(report_data.get("r_peak_indices", []), dtype=int)
 
+    # Preferred path: use nk.ecg_segment → nk.epochs_to_df → pivot, matching
+    # the reference NeuroKit script exactly (preserves the NK time axis origin).
+    if _NK_AVAILABLE and filt.size > 0 and r_peaks.size >= 2:
+        try:
+            fs_int = int(round(fs))
+            epochs = nk.ecg_segment(filt, rpeaks=r_peaks, sampling_rate=fs_int, show=False)
+            epochs_df = nk.epochs_to_df(epochs)
+            pivoted = epochs_df.pivot(index="Time", columns="Label", values="Signal")
+            rel_time_s = pivoted.index.values
+            mean_amp = np.nanmean(pivoted.values, axis=1)
+            std_amp = np.nanstd(pivoted.values, axis=1)
+            with out_path.open("w", newline="", encoding="utf-8") as fh:
+                writer = csv.writer(fh)
+                writer.writerow(["Relative_Time_Sec", "Mean_Amplitude_mV", "Std_Dev_mV"])
+                for i in range(len(rel_time_s)):
+                    mean_val = "NaN" if np.isnan(mean_amp[i]) else f"{mean_amp[i]:.9f}"
+                    std_val = "NaN" if np.isnan(std_amp[i]) else f"{std_amp[i]:.9f}"
+                    writer.writerow([repr(float(rel_time_s[i])), mean_val, std_val])
+            return
+        except Exception as exc:
+            log.warning(
+                "average template: nk.ecg_segment/epochs path failed (%s); "
+                "falling back to manual windowing.",
+                exc,
+            )
+
+    # Fallback: manual fixed-window segmentation when NeuroKit2 is unavailable.
+    log.debug(
+        "average template: using manual fixed-window fallback "
+        "(NeuroKit2 %s, r_peaks=%d).",
+        "available" if _NK_AVAILABLE else "unavailable",
+        int(r_peaks.size),
+    )
     before_n = int(round(_TEMPLATE_BEFORE_S * fs))
     after_n = int(round(_TEMPLATE_AFTER_S * fs))
     win_len = before_n + after_n + 1
