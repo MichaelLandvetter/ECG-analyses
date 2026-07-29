@@ -382,6 +382,11 @@ def _to_nan_text_or_value(value: int | None) -> int | str:
     return value if value is not None else "NaN"
 
 
+def _fmt_float(value: float, precision: int = 9) -> str:
+    """Format a float to *precision* decimal places, or ``'NaN'`` if not finite."""
+    return "NaN" if np.isnan(value) else f"{value:.{precision}f}"
+
+
 def _get_nk_continuous_series(
     raw: np.ndarray, fs: float
 ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
@@ -397,6 +402,14 @@ def _get_nk_continuous_series(
             "Signal_Quality will be empty."
         )
         return None, None, None
+
+    _LARGE_SIGNAL_WARN_SAMPLES = 1_000_000
+    if raw.size > _LARGE_SIGNAL_WARN_SAMPLES:
+        log.debug(
+            "continuous series: signal is large (%d samples); "
+            "nk.ecg_process may take a while.",
+            raw.size,
+        )
 
     try:
         fs_int = int(round(fs))
@@ -629,9 +642,7 @@ def _write_average_template_csv(report_data: dict, out_path: Path) -> None:
                 writer = csv.writer(fh)
                 writer.writerow(["Relative_Time_Sec", "Mean_Amplitude_mV", "Std_Dev_mV"])
                 for i in range(len(rel_time_s)):
-                    mean_val = "NaN" if np.isnan(mean_amp[i]) else f"{mean_amp[i]:.9f}"
-                    std_val = "NaN" if np.isnan(std_amp[i]) else f"{std_amp[i]:.9f}"
-                    writer.writerow([repr(float(rel_time_s[i])), mean_val, std_val])
+                    writer.writerow([repr(float(rel_time_s[i])), _fmt_float(mean_amp[i]), _fmt_float(std_amp[i])])
             return
         except Exception as exc:
             log.warning(
@@ -675,9 +686,7 @@ def _write_average_template_csv(report_data: dict, out_path: Path) -> None:
         writer = csv.writer(fh)
         writer.writerow(["Relative_Time_Sec", "Mean_Amplitude_mV", "Std_Dev_mV"])
         for i in range(win_len):
-            mean_val = "NaN" if np.isnan(mean_amp[i]) else f"{mean_amp[i]:.9f}"
-            std_val = "NaN" if np.isnan(std_amp[i]) else f"{std_amp[i]:.9f}"
-            writer.writerow([f"{rel_time_s[i]:.6f}", mean_val, std_val])
+            writer.writerow([f"{rel_time_s[i]:.6f}", _fmt_float(mean_amp[i]), _fmt_float(std_amp[i])])
 
 
 def save_neurokit2_report_set(report_data: dict, out_dir: Path, output_stem: str | None = None) -> dict[str, Path | None]:
