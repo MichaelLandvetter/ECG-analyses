@@ -135,7 +135,7 @@ class SerialAcquisitionSource:
         # in each hardware packet are parsed but discarded; only the raw ECG channel
         # is used.  See _try_parse_binary_sample() below.
 
-        # Raw ECG log file (single-column output)
+        # Raw ECG capture bookkeeping.
         self._raw_log_file = None
         self._raw_log_path = None
 
@@ -148,20 +148,15 @@ class SerialAcquisitionSource:
             raise RuntimeError("pyserial is not installed.") from exc
         self._serial = serial.Serial(self.port, baudrate=self.baud_rate, timeout=self.timeout)
 
-        # Start the background raw ECG logger (single-column plain text).
-        # The saved format is compatible with ECGFileLoader: one numeric value
-        # per line, no trigger column, ready for future ECG processing.
+        # Keep a session stamp for serial naming, but defer raw export until
+        # the user saves reports (so serial raw data lands in the chosen folder).
         try:
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             self._raw_log_path = Path(f"ECG_Serial_{timestamp}.txt")
-            self._raw_log_file = open(self._raw_log_path, "w")
-            # Single-column comment header identifies the data and its origin.
-            self._raw_log_file.write("# ECG raw samples - USB serial capture\n")
-            self._raw_log_file.write(f"# Timestamp: {timestamp} Port: {self.port} Baud: {self.baud_rate}\n")
         except Exception as e:
-            print(f"Warning: Could not start raw ECG data logger: {e}")
-            self._raw_log_file = None
+            print(f"Warning: Could not initialize serial raw capture label: {e}")
+            self._raw_log_path = None
 
     def close(self) -> None:
         if self._serial is not None:
@@ -221,12 +216,6 @@ class SerialAcquisitionSource:
                 while True:
                     sample = self._try_parse_binary_sample()
                     if sample is not None:
-                        # Log only the raw ECG value (single column).
-                        # The trigger column (sample[0]) is always 0.0 in the ECG
-                        # serial path and is not saved to disk.
-                        if self._raw_log_file is not None:
-                            self._raw_log_file.write(f"{sample[1]}\n")
-
                         yield sample
                     else:
                         break
