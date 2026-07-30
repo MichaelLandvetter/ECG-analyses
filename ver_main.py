@@ -17,6 +17,7 @@ import logging
 import shutil
 import sys
 import time
+import csv
 import serial
 import serial.tools.list_ports
 from pathlib import Path
@@ -37,6 +38,7 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -64,7 +66,7 @@ from ecg_pipeline import (
     ECG_DETECTOR_DEFAULT,
 )
 from ecg_config import ECG_PROCESSING_CONFIG
-from ecg_extended_report import save_neurokit2_report_set
+from ecg_extended_report import save_neurokit2_report_set, sanitize_output_stem
 
 # --- Generic infrastructure (keep for ECG) ---
 from ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
@@ -1698,6 +1700,7 @@ class VERMainWindow(QMainWindow):
         raw_signal: np.ndarray,
         offline_result,
         source_label: str,
+        source_mode: str,
         output_prefix: str,
         output_dir: Path,
     ) -> dict:
@@ -1719,6 +1722,7 @@ class VERMainWindow(QMainWindow):
             "mean_hr_bpm": offline_result.mean_hr_bpm,
             "duration_s": float(offline_result.duration_s),
             "source_label": source_label,
+            "source_mode": source_mode,
             "output_prefix": output_prefix,
             "output_dir": str(output_dir),
             "p_peak_indices": list(offline_result.p_peak_indices),
@@ -1736,7 +1740,7 @@ class VERMainWindow(QMainWindow):
             raw_path = getattr(self.worker.source, "_raw_log_path", None)
             if raw_path:
                 return Path(raw_path).stem
-        return time.strftime("serial_capture_%Y%m%d_%H%M%S")
+        return time.strftime("ECG_Serial_%Y%m%d_%H%M%S")
 
     def _run_file_analysis_offline(self) -> None:
         """Run full-file offline compute, then open the dedicated pre-report dialog."""
@@ -1780,6 +1784,7 @@ class VERMainWindow(QMainWindow):
                 raw_signal=raw_signal,
                 offline_result=offline_result,
                 source_label=f"File analysis complete: {file_path.name}",
+                source_mode="File",
                 output_prefix=file_path.stem,
                 output_dir=file_path.parent,
             )
@@ -1815,6 +1820,7 @@ class VERMainWindow(QMainWindow):
                 raw_signal=raw_signal,
                 offline_result=offline_result,
                 source_label="USB serial capture pre-report",
+                source_mode="Serial",
                 output_prefix=self._serial_output_prefix(),
                 output_dir=Path.cwd(),
             )
@@ -1854,12 +1860,42 @@ class VERMainWindow(QMainWindow):
 
         out_dir = Path(selected_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
+        default_stem = sanitize_output_stem(str(report_data.get("output_prefix", "")))
+        source_mode = str(report_data.get("source_mode", "")).strip()
+        output_stem = default_stem
+
+        # Serial mode asks for a user label; file mode keeps source-file stem naming.
+        if source_mode == "Serial":
+            entered_stem, accepted = QInputDialog.getText(
+                self,
+                "Report base filename",
+                "Enter a descriptive base filename:",
+                QLineEdit.EchoMode.Normal,
+                default_stem,
+            )
+            if not accepted:
+                return
+            output_stem = sanitize_output_stem(entered_stem, fallback=default_stem)
+
         report_paths = save_neurokit2_report_set(
             report_data=report_data,
             out_dir=out_dir,
-            output_stem=str(report_data.get("output_prefix", "")),
+            output_stem=output_stem,
         )
         saved_names = [path.name for path in report_paths.values() if path is not None]
+        if source_mode == "Serial":
+            raw_serial_path = out_dir / f"{output_stem}_raw_serial_data.csv"
+            raw_signal = np.asarray(report_data.get("raw_signal", []), dtype=float)
+            try:
+                with raw_serial_path.open("w", newline="", encoding="utf-8") as fh:
+                    writer = csv.writer(fh)
+                    writer.writerow(["Raw_ECG_mV"])
+                    for value in raw_signal.tolist():
+                        writer.writerow([value])
+                saved_names.append(raw_serial_path.name)
+            except Exception as exc:
+                log.warning("Raw serial CSV could not be written: %s", exc)
+
         if not saved_names:
             QMessageBox.warning(self, "Reports not saved", "No CSV files could be written. Check logs for details.")
             return
