@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import time
 import struct
+import logging
 from pathlib import Path
 from typing import Generator, Optional
 
 import numpy as np
 
 from ver_config import ACQ_CONFIG, FILE_CONFIG, SERIAL_CONFIG
+
+log = logging.getLogger(__name__)
 
 
 class FileAcquisitionSimulator:
@@ -129,6 +132,20 @@ class SerialAcquisitionSource:
         self._binary_header = b"\xA5\x5A"
         self._binary_footer = 0x01
         self._binary_packet_size = 9
+        self._stream_format: str = "unknown"  # unknown | csv | binary
+        self._line_buffer_limit = 1024
+        self._dropped_malformed_lines = 0
+        self._last_malformed_log_ts = 0.0
+        self._malformed_log_interval_s = 5.0
+        self._last_timestamp_ms: Optional[int] = None
+        self._timing_delta_ms_ema: Optional[float] = None
+        self._timing_alpha = 0.1
+        self._last_timing_warning_ts = 0.0
+        self._timing_warning_interval_s = 5.0
+        self._observed_sample_rate_hz: Optional[float] = None
+        self._timestamp_wrap_modulus = 2**32
+        # Rollover detection window around millis() uint32 wrap boundary.
+        self._rollover_guard_ms = 60000
 
         # NOTE: Flash-trigger state fields (_serial_trigger_high, _serial_trigger_floor,
         # etc.) have been removed from the ECG serial path.  The trigger_state bytes
@@ -173,10 +190,122 @@ class SerialAcquisitionSource:
                 pass
             self._raw_log_file = None
 
-    def _try_parse_binary_sample(self) -> Optional[np.ndarray]:
+    def _log_malformed_line(self, reason: str, line: str = "") -> None:
+        self._dropped_malformed_lines += 1
+        now = time.monotonic()
+        if (now - self._last_malformed_log_ts) < self._malformed_log_interval_s:
+            return
+        self._last_malformed_log_ts = now
+        line_preview = line if len(line) <= 120 else f"{line[:117]}..."
+        log.warning(
+            "Dropped malformed serial line (%s). dropped_total=%d line=%r",
+            reason,
+            self._dropped_malformed_lines,
+            line_preview,
+        )
+
+    def _update_timing_from_timestamp(self, timestamp_ms: int) -> None:
+        if self._last_timestamp_ms is None:
+            self._last_timestamp_ms = timestamp_ms
+            return
+
+        delta = int(timestamp_ms) - int(self._last_timestamp_ms)
+        if delta == 0:
+            # Duplicate timestamp sample: keep streaming without warning.
+            self._last_timestamp_ms = timestamp_ms
+            return
+
+        if delta < 0:
+            # Handle microcontroller millis() rollover (uint32 wrap).
+            if int(self._last_timestamp_ms) >= (self._timestamp_wrap_modulus - self._rollover_guard_ms) and int(timestamp_ms) < self._rollover_guard_ms:
+                delta = (int(timestamp_ms) + self._timestamp_wrap_modulus) - int(self._last_timestamp_ms)
+            else:
+                self._last_timestamp_ms = timestamp_ms
+                now = time.monotonic()
+                if (now - self._last_timing_warning_ts) >= self._timing_warning_interval_s:
+                    self._last_timing_warning_ts = now
+                    log.warning("Non-monotonic serial timestamp delta detected: %d ms", delta)
+                return
+
+        self._last_timestamp_ms = timestamp_ms
+
+        if self._timing_delta_ms_ema is None:
+            self._timing_delta_ms_ema = float(delta)
+        else:
+            alpha = self._timing_alpha
+            self._timing_delta_ms_ema = (1.0 - alpha) * self._timing_delta_ms_ema + alpha * float(delta)
+
+        if self._timing_delta_ms_ema > 0:
+            self._observed_sample_rate_hz = 1000.0 / self._timing_delta_ms_ema
+
+        nominal_delta_ms = 1000.0 / float(self.sample_rate) if self.sample_rate > 0 else 0.0
+        if nominal_delta_ms > 0 and abs(delta - nominal_delta_ms) > max(2.0, nominal_delta_ms * 0.5):
+            now = time.monotonic()
+            if (now - self._last_timing_warning_ts) >= self._timing_warning_interval_s:
+                self._last_timing_warning_ts = now
+                log.warning(
+                    "Serial timing irregularity: delta=%d ms nominal=%.2f ms observed_rate=%.2f Hz",
+                    delta,
+                    nominal_delta_ms,
+                    self._observed_sample_rate_hz if self._observed_sample_rate_hz is not None else -1.0,
+                )
+
+    def _try_parse_csv_line(self, raw_line: bytes) -> Optional[np.ndarray]:
+        try:
+            line = raw_line.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            if self._stream_format == "unknown":
+                self._stream_format = "csv"
+            return np.asarray([], dtype=float)
+
+        parts = [p.strip() for p in stripped.split(",")]
+        lower_parts = [p.lower() for p in parts]
+        if len(parts) == 2 and lower_parts[0] == "timestamp_ms" and lower_parts[1] == "ecg_raw":
+            self._stream_format = "csv"
+            return np.asarray([], dtype=float)
+
+        if len(parts) == 2:
+            try:
+                timestamp_ms = int(parts[0], 10)
+                ecg_raw = int(parts[1], 10)
+            except ValueError:
+                self._log_malformed_line("invalid integer fields", stripped)
+                return np.asarray([], dtype=float)
+
+            if timestamp_ms < 0:
+                self._log_malformed_line("negative timestamp", stripped)
+                return np.asarray([], dtype=float)
+            if timestamp_ms >= self._timestamp_wrap_modulus:
+                self._log_malformed_line("timestamp outside uint32 ms range", stripped)
+                return np.asarray([], dtype=float)
+
+            self._stream_format = "csv"
+            self._update_timing_from_timestamp(timestamp_ms)
+            # Keep ecg_raw integer unbounded here for broad compatibility with
+            # signed/unsigned ADC formats used across different firmware stacks.
+            return np.asarray([0.0, float(ecg_raw)], dtype=float)
+
+        # Keep compatibility with old one-column serial payloads.
+        if len(parts) == 1:
+            try:
+                ecg_raw = int(parts[0], 10)
+            except ValueError:
+                self._log_malformed_line("unknown line format", stripped)
+                return np.asarray([], dtype=float)
+            self._stream_format = "csv"
+            return np.asarray([0.0, float(ecg_raw)], dtype=float)
+
+        self._log_malformed_line("unexpected field count", stripped)
+        return np.asarray([], dtype=float)
+
+    def _try_parse_binary_sample(self, resync: bool = False) -> Optional[np.ndarray]:
         header_index = self._buffer.find(self._binary_header)
         if header_index < 0:
-            if len(self._buffer) > 1:
+            if resync and len(self._buffer) > 1:
                 del self._buffer[:-1]
             return None
         if header_index > 0:
@@ -205,6 +334,46 @@ class SerialAcquisitionSource:
         # The leading 0.0 is a placeholder trigger (no hardware trigger in ECG path).
         return np.asarray([0.0, float(eeg)], dtype=float)
 
+    def _try_parse_next_sample(self) -> Optional[np.ndarray]:
+        if self._stream_format == "binary":
+            return self._try_parse_binary_sample(resync=True)
+
+        newline_index = self._buffer.find(b"\n")
+        header_index = self._buffer.find(self._binary_header)
+
+        if self._stream_format == "unknown":
+            if header_index == 0:
+                self._stream_format = "binary"
+                return self._try_parse_binary_sample(resync=True)
+            if header_index > 0 and (newline_index < 0 or header_index < newline_index):
+                del self._buffer[:header_index]
+                self._stream_format = "binary"
+                return self._try_parse_binary_sample(resync=True)
+
+        if newline_index >= 0:
+            raw_line = bytes(self._buffer[:newline_index])
+            del self._buffer[: newline_index + 1]
+            parsed = self._try_parse_csv_line(raw_line)
+            if parsed is None:
+                self._log_malformed_line("non-utf8 line")
+                return np.asarray([], dtype=float)
+            return parsed
+
+        if len(self._buffer) > self._line_buffer_limit:
+            drop_n = len(self._buffer) - self._line_buffer_limit
+            del self._buffer[:drop_n]
+            self._log_malformed_line("serial buffer overflow/glitch")
+            newline_index = self._buffer.find(b"\n")
+            if newline_index >= 0:
+                raw_line = bytes(self._buffer[:newline_index])
+                del self._buffer[: newline_index + 1]
+                parsed = self._try_parse_csv_line(raw_line)
+                if parsed is None:
+                    self._log_malformed_line("non-utf8 line")
+                    return np.asarray([], dtype=float)
+                return parsed
+        return None
+
     def stream_samples(self) -> Generator[np.ndarray, None, None]:
         self._open()
         try:
@@ -214,11 +383,12 @@ class SerialAcquisitionSource:
                     self._buffer.extend(raw_bytes)
 
                 while True:
-                    sample = self._try_parse_binary_sample()
-                    if sample is not None:
-                        yield sample
-                    else:
+                    sample = self._try_parse_next_sample()
+                    if sample is None:
                         break
+                    if sample.size == 0:
+                        continue
+                    yield sample
 
                 time.sleep(0.001)
         finally:

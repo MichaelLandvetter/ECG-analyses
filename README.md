@@ -67,6 +67,36 @@ features (file replay, live USB, report export) remain functional.
 `ver_main.py` is kept as a backward-compatibility shim; `ecg_main.py` is the
 **canonical entrypoint** going forward.
 
+## USB serial CSV format (ECG microcontroller stream)
+
+Live USB ingestion accepts CSV lines in the format:
+
+- Header (optional): `timestamp_ms,ecg_raw`
+- Data rows: `<unsigned_ms>,<signed_or_unsigned_integer_sample>`
+
+Examples:
+
+```text
+timestamp_ms,ecg_raw
+0,512
+4,515
+8,509
+```
+
+Also accepted:
+
+- data-only rows with no header
+- optional whitespace around fields (`" 8 , -509 "`)
+- comment/debug lines that start with `#` (ignored)
+- timestamp is treated as unsigned 32-bit milliseconds (rollover-safe timing diagnostics)
+
+Quick manual check:
+
+1. Start the app and choose **USB Serial (microcontroller)** source.
+2. Stream lines matching the format above from the microcontroller over USB.
+3. Confirm the scrolling ECG trace updates and no acquisition crash occurs if
+   occasional malformed/banner lines are emitted.
+
 ## Building a standalone executable (distribution)
 
 This repository contains both `ecg_*.py` and `ver_*.py` modules.  Only the
