@@ -143,6 +143,9 @@ class SerialAcquisitionSource:
         self._last_timing_warning_ts = 0.0
         self._timing_warning_interval_s = 5.0
         self._observed_sample_rate_hz: Optional[float] = None
+        self._timestamp_wrap_modulus = 2**32
+        # Rollover detection window around millis() uint32 wrap boundary.
+        self._rollover_guard_ms = 60000
 
         # NOTE: Flash-trigger state fields (_serial_trigger_high, _serial_trigger_floor,
         # etc.) have been removed from the ECG serial path.  The trigger_state bytes
@@ -207,13 +210,24 @@ class SerialAcquisitionSource:
             return
 
         delta = int(timestamp_ms) - int(self._last_timestamp_ms)
-        self._last_timestamp_ms = timestamp_ms
-        if delta <= 0:
-            now = time.monotonic()
-            if (now - self._last_timing_warning_ts) >= self._timing_warning_interval_s:
-                self._last_timing_warning_ts = now
-                log.warning("Non-monotonic serial timestamp delta detected: %d ms", delta)
+        if delta == 0:
+            # Duplicate timestamp sample: keep streaming without warning.
+            self._last_timestamp_ms = timestamp_ms
             return
+
+        if delta < 0:
+            # Handle microcontroller millis() rollover (uint32 wrap).
+            if int(self._last_timestamp_ms) >= (self._timestamp_wrap_modulus - self._rollover_guard_ms) and int(timestamp_ms) < self._rollover_guard_ms:
+                delta = (int(timestamp_ms) + self._timestamp_wrap_modulus) - int(self._last_timestamp_ms)
+            else:
+                self._last_timestamp_ms = timestamp_ms
+                now = time.monotonic()
+                if (now - self._last_timing_warning_ts) >= self._timing_warning_interval_s:
+                    self._last_timing_warning_ts = now
+                    log.warning("Non-monotonic serial timestamp delta detected: %d ms", delta)
+                return
+
+        self._last_timestamp_ms = timestamp_ms
 
         if self._timing_delta_ms_ema is None:
             self._timing_delta_ms_ema = float(delta)
@@ -244,6 +258,8 @@ class SerialAcquisitionSource:
 
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
+            if self._stream_format == "unknown":
+                self._stream_format = "csv"
             return np.asarray([], dtype=float)
 
         parts = [p.strip() for p in stripped.split(",")]
@@ -263,9 +279,14 @@ class SerialAcquisitionSource:
             if timestamp_ms < 0:
                 self._log_malformed_line("negative timestamp", stripped)
                 return np.asarray([], dtype=float)
+            if timestamp_ms >= self._timestamp_wrap_modulus:
+                self._log_malformed_line("timestamp outside uint32 ms range", stripped)
+                return np.asarray([], dtype=float)
 
             self._stream_format = "csv"
             self._update_timing_from_timestamp(timestamp_ms)
+            # Keep ecg_raw integer unbounded here for broad compatibility with
+            # signed/unsigned ADC formats used across different firmware stacks.
             return np.asarray([0.0, float(ecg_raw)], dtype=float)
 
         # Keep compatibility with old one-column serial payloads.
@@ -338,14 +359,19 @@ class SerialAcquisitionSource:
                 return np.asarray([], dtype=float)
             return parsed
 
-        if self._stream_format == "unknown" and header_index == 0:
-            self._stream_format = "binary"
-            return self._try_parse_binary_sample(resync=True)
-
         if len(self._buffer) > self._line_buffer_limit:
             drop_n = len(self._buffer) - self._line_buffer_limit
             del self._buffer[:drop_n]
             self._log_malformed_line("serial buffer overflow/glitch")
+            newline_index = self._buffer.find(b"\n")
+            if newline_index >= 0:
+                raw_line = bytes(self._buffer[:newline_index])
+                del self._buffer[: newline_index + 1]
+                parsed = self._try_parse_csv_line(raw_line)
+                if parsed is None:
+                    self._log_malformed_line("non-utf8 line")
+                    return np.asarray([], dtype=float)
+                return parsed
         return None
 
     def stream_samples(self) -> Generator[np.ndarray, None, None]:

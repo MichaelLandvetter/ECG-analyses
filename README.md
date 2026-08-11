@@ -88,6 +88,7 @@ Also accepted:
 - data-only rows with no header
 - optional whitespace around fields (`" 8 , -509 "`)
 - comment/debug lines that start with `#` (ignored)
+- timestamp is treated as unsigned 32-bit milliseconds (rollover-safe timing diagnostics)
 
 Quick manual check:
 
