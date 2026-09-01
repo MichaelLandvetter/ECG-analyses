@@ -27,7 +27,7 @@ Future replacement path:
 
 from __future__ import annotations
 
-from ver_scope import VERScopeProcessor
+from src.ecg_analyses.ver.ver_scope import VERScopeProcessor
 
 
 class ECGScopeProcessor(VERScopeProcessor):
