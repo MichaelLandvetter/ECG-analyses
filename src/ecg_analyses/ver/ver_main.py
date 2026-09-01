@@ -73,7 +73,7 @@ from src.ecg_analyses.ver.ver_acquisition import FileAcquisitionSimulator, Seria
 from src.ecg_analyses.ver.ver_config import ACQ_CONFIG, EPOCH_CONFIG, FILTER_CONFIG, SERIAL_CONFIG
 from src.ecg_analyses.ver.ver_display import VERDisplayWidget, _FocusableViewBox
 from src.ecg_analyses.ver.ver_filter import BandpassFilter
-from ver_wavelet import compute_wavelet_scalogram
+from src.ecg_analyses.ver.ver_wavelet import compute_wavelet_scalogram
 from ver_ml_logger import launch_ml_logger
 from ver_settings import SettingsManager
 from ver_analysis_flow import (
