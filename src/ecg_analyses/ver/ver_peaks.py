@@ -59,7 +59,7 @@ def _get_classifier_cfg(override: dict | None) -> dict:
         return _cached_classifier_cfg
     # First-time load only.
     try:
-        from ver_settings import SettingsManager
+        from src.ecg_analyses.ver.ver_settings import SettingsManager
         _cached_classifier_cfg = SettingsManager().load_settings().get("CLASSIFIER_CONFIG", {})
     except Exception as exc:
         log.warning("Could not load CLASSIFIER_CONFIG from settings: %s", exc)
