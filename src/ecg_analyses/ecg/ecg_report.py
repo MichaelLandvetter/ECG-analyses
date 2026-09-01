@@ -43,8 +43,7 @@ import numpy as np
 
 # INHERITED VER ANALYSIS ENGINE — delegated through this placeholder boundary.
 # Replace this import with ECG-specific report logic when implementing ecg_report.
-from ver_report import save_ver_report as _save_ver_report
-
+from src.ecg_analyses.ver.ver_report import save_ver_report as _save_ver_report
 
 def save_ecg_report(
     data_file_path: str,
