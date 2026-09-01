@@ -64,14 +64,14 @@ __all__ = [
 
 # REPLACEMENT TARGET 2 — ver_peaks.py → ecg_peaks.py
 # ECG equivalent: R-peak / P / Q / R / S / T morphology detection
-from ver_peaks import detect_ver_peaks
-from ver_peaks import refresh_classifier_cfg as _refresh_peaks_cfg
+from src.ecg_analyses.ver.ver_peaks import detect_ver_peaks
+from src.ecg_analyses.ver.ver_peaks import refresh_classifier_cfg as _refresh_peaks_cfg
 
 # REPLACEMENT TARGET 3 (boundary established) — ecg_classifier.py wraps ver_classifier.py
 # ECG equivalent: QRS duration, PR/QT interval, rhythm classification
 # The VER-specific logic still runs underneath; replace delegation inside ecg_classifier.py.
-from ecg_classifier import classify_ecg_signal
-from ecg_classifier import refresh_classifier_cfg as _refresh_classifier_cfg
+from src.ecg_analyses.ecg.ecg_classifier import classify_ecg_signal
+from src.ecg_analyses.ecg.ecg_classifier import refresh_classifier_cfg as _refresh_classifier_cfg
 
 # Backward-compat alias — callers that still reference evaluate_ver_peak will
 # continue to work.  Switch callers to classify_ecg_signal and remove this alias.
@@ -80,7 +80,7 @@ evaluate_ver_peak = classify_ecg_signal
 # REPLACEMENT TARGET 4 (boundary established) — ecg_report.py wraps ver_report.py
 # ECG equivalent: PDF/CSV with ECG-standard metrics and interval tables
 # The VER-specific layout still runs underneath; replace delegation inside ecg_report.py.
-from ecg_report import save_ecg_report
+from src.ecg_analyses.ecg.ecg_report import save_ecg_report
 
 # Backward-compat alias — callers that still reference save_ver_report will
 # continue to work.  Switch callers to save_ecg_report and remove this alias.
