@@ -108,7 +108,7 @@ SPECIES = {
 # settings from the external user_settings.json file instead of locking them!
 # ==============================================================================
 try:
-    from ver_settings import SettingsManager
+    from src.ecg_analyses.ver.ver_settings import SettingsManager
     _manager = SettingsManager()
     _user_cfg = _manager.load_settings()
     
