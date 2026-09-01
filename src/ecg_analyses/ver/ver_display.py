@@ -39,7 +39,7 @@ import pyqtgraph as pg
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from ver_config import ACQ_CONFIG, DISPLAY_CONFIG, EPOCH_CONFIG
+from src.ecg_analyses.ver.ver_config import ACQ_CONFIG, DISPLAY_CONFIG, EPOCH_CONFIG
 
 # Qt's QWIDGETSIZE_MAX (16 777 215) used to effectively remove size constraints
 # from QGraphicsGridLayout rows when restoring the normal layout.
