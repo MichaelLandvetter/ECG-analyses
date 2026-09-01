@@ -45,8 +45,8 @@ from typing import Optional, Tuple, Dict
 
 # INHERITED VER ANALYSIS ENGINE — delegated through this placeholder boundary.
 # Replace this import with ECG-specific logic when implementing ecg_classifier.
-from ver_classifier import evaluate_ver_peak as _evaluate_ver_peak
-from ver_classifier import refresh_classifier_cfg as _ver_refresh_cfg
+from src.ecg_analyses.ver.ver_classifier import evaluate_ver_peak as _evaluate_ver_peak
+from src.ecg_analyses.ver.ver_classifier import refresh_classifier_cfg as _ver_refresh_cfg
 
 log = logging.getLogger(__name__)
 
