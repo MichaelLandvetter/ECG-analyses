@@ -23,8 +23,8 @@ from PyQt6.QtWidgets import QApplication
 if getattr(sys, 'frozen', False):
     import pyi_splash  # type: ignore[import]  # only present in packaged build
 
-from ver_logging import setup_frozen_debug_logging, setup_logging
-from ver_main import VERMainWindow
+from src.ecg_analyses.ver.ver_logging import setup_frozen_debug_logging, setup_logging
+from src.ecg_analyses.ver.ver_main import VERMainWindow
 
 log = logging.getLogger(__name__)
 
