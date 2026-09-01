@@ -35,7 +35,7 @@ from typing import TypedDict
 import numpy as np
 from scipy.signal import find_peaks
 
-import ver_config
+from src.ecg_analyses.ver import ver_config
 
 log = logging.getLogger(__name__)
 
