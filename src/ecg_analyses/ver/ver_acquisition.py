@@ -10,7 +10,7 @@ from typing import Generator, Optional
 
 import numpy as np
 
-from ver_config import ACQ_CONFIG, FILE_CONFIG, SERIAL_CONFIG
+from src.ecg_analyses.ver.ver_config import ACQ_CONFIG, FILE_CONFIG, SERIAL_CONFIG
 
 log = logging.getLogger(__name__)
 
