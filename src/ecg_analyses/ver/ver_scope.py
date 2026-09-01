@@ -45,7 +45,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from ver_config import ACQ_CONFIG, EPOCH_CONFIG
+from src.ecg_analyses.ver.ver_config import ACQ_CONFIG, EPOCH_CONFIG
 
 
 class VERScopeProcessor:
