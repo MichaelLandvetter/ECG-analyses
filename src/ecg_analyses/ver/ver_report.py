@@ -13,7 +13,7 @@ import math
 import datetime
 from pathlib import Path
 from typing import List, Optional
-from ver_config import EPOCH_CONFIG
+from src.ecg_analyses.ver.ver_config import EPOCH_CONFIG
 
 import matplotlib
 matplotlib.use("Agg")
@@ -21,10 +21,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.lines import Line2D
-from ver_wavelet import compute_wavelet_scalogram
+from src.ecg_analyses.ver.ver_wavelet import compute_wavelet_scalogram
 from matplotlib import colors
 # TRANSITIONAL: import through ECG classifier boundary (ecg_classifier.py wraps ver_classifier.py)
-from ecg_classifier import classify_ecg_signal
+from src.ecg_analyses.ecg.ecg_classifier import classify_ecg_signal
 
 # Keeping the variable name the same so it doesn't break references
 MINUTE_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
