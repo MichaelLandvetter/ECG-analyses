@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTableWidget,
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
 # TRANSITIONAL: import through ECG classifier boundary (ecg_classifier.py wraps ver_classifier.py)
-from ecg_classifier import classify_ecg_signal
+from src.ecg_analyses.ecg_classifier import classify_ecg_signal
 from src.ecg_analyses.ver.ver_settings import SettingsManager
 
 # Canonical 15-column header for training_data.csv (v2 schema).
