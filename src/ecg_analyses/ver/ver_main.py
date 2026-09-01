@@ -71,7 +71,7 @@ from ecg_extended_report import save_neurokit2_report_set, sanitize_output_stem
 # --- Generic infrastructure (keep for ECG) ---
 from src.ecg_analyses.ver.ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
 from src.ecg_analyses.ver.ver_config import ACQ_CONFIG, EPOCH_CONFIG, FILTER_CONFIG, SERIAL_CONFIG
-from ver_display import VERDisplayWidget, _FocusableViewBox
+from src.ecg_analyses.ver.ver_display import VERDisplayWidget, _FocusableViewBox
 from ver_filter import BandpassFilter
 from ver_wavelet import compute_wavelet_scalogram
 from ver_ml_logger import launch_ml_logger
