@@ -76,7 +76,7 @@ from src.ecg_analyses.ver.ver_filter import BandpassFilter
 from src.ecg_analyses.ver.ver_wavelet import compute_wavelet_scalogram
 from src.ecg_analyses.ver.ver_ml_logger import launch_ml_logger
 from src.ecg_analyses.ver.ver_settings import SettingsManager
-from ver_analysis_flow import (
+from src.ecg_analyses.ver.ver_analysis_flow import (
     BACK_TO_ANALYSIS,
     CANCEL_ANALYSIS,
     PROCEED_TO_VALIDATION,
