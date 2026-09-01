@@ -69,7 +69,7 @@ from ecg_config import ECG_PROCESSING_CONFIG
 from ecg_extended_report import save_neurokit2_report_set, sanitize_output_stem
 
 # --- Generic infrastructure (keep for ECG) ---
-from ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
+from src.ecg_analyses.ver.ver_acquisition import FileAcquisitionSimulator, SerialAcquisitionSource
 from src.ecg_analyses.ver.ver_config import ACQ_CONFIG, EPOCH_CONFIG, FILTER_CONFIG, SERIAL_CONFIG
 from ver_display import VERDisplayWidget, _FocusableViewBox
 from ver_filter import BandpassFilter
