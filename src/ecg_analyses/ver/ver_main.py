@@ -909,7 +909,7 @@ class VERMainWindow(QMainWindow):
     def _launch_usb_test(self):
         """Launches the dedicated USB test program directly within the application."""
         # Import the GUI class from your USB test file
-        from ver_USB_test import WaveletAnalyzerGUI
+        from src.ecg_analyses.ver.ver_USB_test import WaveletAnalyzerGUI
 
         # We attach the window to 'self' so Python doesn't instantly close it
         if not hasattr(self, 'usb_test_window') or self.usb_test_window is None:
