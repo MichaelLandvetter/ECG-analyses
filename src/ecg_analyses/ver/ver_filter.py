@@ -8,7 +8,7 @@ import numpy as np
 from scipy.signal import butter, sosfilt, sosfilt_zi, sosfiltfilt, savgol_filter, firwin, filtfilt
 
 from src.ecg_analyses.ver.ver_config import FILTER_CONFIG
-from ver_constants import DEFAULT_SCOPE_FILTER_MODE, SCOPE_FILTER_FIR, SCOPE_FILTER_SAVGOL
+from src.ecg_analyses.ver.ver_constants import DEFAULT_SCOPE_FILTER_MODE, SCOPE_FILTER_FIR, SCOPE_FILTER_SAVGOL
 
 log = logging.getLogger(__name__)
 
