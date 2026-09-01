@@ -7,7 +7,7 @@ from typing import Optional, Tuple
 import numpy as np
 import pywt
 
-from ver_config import ACQ_CONFIG, WAVELET_CONFIG
+from src.ecg_analyses.ver.ver_config import ACQ_CONFIG, WAVELET_CONFIG
 
 def compute_wavelet_scalogram(epoch: np.ndarray, sample_rate: Optional[float] = None, config: Optional[dict] = None) -> Tuple[np.ndarray, np.ndarray]:
     """Computes a wavelet scalogram using dyadic scales matching wavelib."""
