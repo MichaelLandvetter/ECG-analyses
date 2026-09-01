@@ -29,7 +29,7 @@ Legacy keys intentionally omitted from this module
 
 from __future__ import annotations
 
-from ver_config import (
+from src.ecg_analyses.ver.ver_config import (
     ACQ_CONFIG as _ACQ_CONFIG,
     FILTER_CONFIG as _FILTER_CONFIG,
     SERIAL_CONFIG as _SERIAL_CONFIG,
@@ -107,7 +107,7 @@ ECG_PROCESSING_CONFIG: dict = {
 import logging as _logging
 _log = _logging.getLogger(__name__)
 try:
-    from ver_settings import SettingsManager as _SM
+    from src.ecg_analyses.ver.ver_settings import SettingsManager as _SM
     _saved = _SM().load_settings()
     if "ECG_PROCESSING_CONFIG" in _saved:
         ECG_PROCESSING_CONFIG.update(_saved["ECG_PROCESSING_CONFIG"])
