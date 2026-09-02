@@ -46,16 +46,15 @@ from __future__ import annotations
 # Public API of this adapter module — defines the analysis engine surface
 # ---------------------------------------------------------------------------
 __all__ = [
-    # ECG-named boundary functions (preferred — use these in new/updated code)
     "classify_ecg_signal",
     "save_ecg_report",
-    # Backward-compat aliases (deprecated — to be removed after all callers updated)
     "evaluate_ver_peak",
     "save_ver_report",
-    # Peak detection (still inherited VER — REPLACEMENT TARGET 2)
     "detect_ver_peaks",
-    # Settings propagation
     "refresh_classifier_cfg",
+    "detect_ecg_peaks",
+    "refresh_ecg_analysis_config",
+    "refresh_analysis_config",
 ]
 
 # ---------------------------------------------------------------------------
