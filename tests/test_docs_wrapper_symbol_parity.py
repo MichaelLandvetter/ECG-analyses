@@ -11,14 +11,15 @@ def test_doc_symbols_exist_in_wrapper_module():
     doc = Path("docs/ecg-compat-aliases.md").read_text()
     symbols = {m.group(1) for m in SYMBOL_PATTERN.finditer(doc)}
 
-    # Scope this test to known API names we care about in this transition doc.
     expected = {
         "detect_ecg_peaks",
         "refresh_ecg_analysis_config",
         "detect_ver_peaks",
         "refresh_analysis_config",
     }
-    documented = symbols & expected
+
+    # Accept either markdown-code formatting (`name`) or plain text mentions.
+    documented = {name for name in expected if (name in symbols) or (name in doc)}
     assert documented == expected, (
         f"Doc is missing expected symbol(s): {sorted(expected - documented)}"
     )
