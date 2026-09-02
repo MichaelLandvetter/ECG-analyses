@@ -90,8 +90,8 @@ from src.ecg_analyses.ver.ver_analysis_flow import (
 # To replace with ECG modules, update ver_analysis_engine.py and ecg_scope.py;
 # no other changes to this file are needed for those replacements.
 # See docs/ecg-transition-priorities.md for the full replacement sequence.
-from src.ecg_analyses.ver.ver_analysis_engine import (       # REPLACEMENT BOUNDARY — see ver_analysis_engine.py
-    detect_ver_peaks,
+from src.ecg_analyses.ecg.ecg_analysis_engine import (       # REPLACEMENT BOUNDARY — see ver_analysis_engine.py
+    detect_ecg_peaks,
     save_ecg_report,                    # ECG-named boundary (wraps inherited ver_report)
     refresh_classifier_cfg as _refresh_analysis_engine_cfg,
 )
@@ -2136,9 +2136,9 @@ class VERMainWindow(QMainWindow):
         peak_power = float(power[peak_idx])
 
         # --- VER analysis engine call site (transitional) ---
-        # detect_ver_peaks comes from ver_analysis_engine.py (REPLACEMENT TARGET 2).
+        # detect_ecg_peaks comes from ver_analysis_engine.py (REPLACEMENT TARGET 2).
         # Replace with detect_ecg_peaks() from ecg_peaks.py when ready.
-        ver_peaks = detect_ver_peaks(session_avg, self.scope.epoch_time_ms)
+        ver_peaks = detect_ecg_peaks(session_avg, self.scope.epoch_time_ms)
         self.session_ver_peaks.append(ver_peaks)
         self.session_flash_counts.append(flash_count)
         self.session_flash_counts_accepted.append(flash_count_accepted)
