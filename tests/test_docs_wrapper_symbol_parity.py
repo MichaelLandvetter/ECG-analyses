@@ -24,6 +24,6 @@ def test_doc_symbols_exist_in_wrapper_module():
         f"Doc is missing expected symbol(s): {sorted(expected - documented)}"
     )
 
-    mod = pytest.importorskip("ver_analysis_engine")
+    mod = pytest.importorskip("ecg_analysis_engine")
     missing = sorted(name for name in documented if not hasattr(mod, name))
     assert not missing, f"Documented symbol(s) missing from wrapper: {missing}"

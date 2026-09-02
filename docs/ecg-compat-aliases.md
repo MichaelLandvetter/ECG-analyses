@@ -11,7 +11,7 @@ Why this exists
 During the VER → ECG transition, compatibility aliases allow older call sites and external scripts to continue working while migration PRs land incrementally.
 
 Current contract
-ver_analysis_engine exports both ECG-first names and legacy aliases.
+ecg_analysis_engine exports both ECG-first names and legacy aliases.
 Tests enforce this export surface to avoid accidental breaking changes.
 
 Suggested deprecation path (future)
