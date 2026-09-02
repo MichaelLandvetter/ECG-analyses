@@ -24,7 +24,7 @@ if getattr(sys, 'frozen', False):
     import pyi_splash  # type: ignore[import]  # only present in packaged build
 
 from src.ecg_analyses.ver.ver_logging import setup_frozen_debug_logging, setup_logging
-from src.ecg_analyses.ver.ver_main import VERMainWindow
+from src.ecg_analyses.ecg.ecg_main_window import ECGMainWindow
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ def main() -> None:
         debug_log_path,
     )
     app = QApplication(sys.argv)
-    win = VERMainWindow()
+    win = ECGMainWindow()
     win.show()
 
     if getattr(sys, 'frozen', False):
