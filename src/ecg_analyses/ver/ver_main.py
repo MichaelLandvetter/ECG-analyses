@@ -87,10 +87,10 @@ from src.ecg_analyses.ver.ver_analysis_flow import (
 
 # --- Inherited VER analysis engine (transitional) ---
 # These imports represent the inherited VER-specific analysis boundary.
-# To replace with ECG modules, update ver_analysis_engine.py and ecg_scope.py;
+# To replace with ECG modules, update ecg_analysis_engine.py and ecg_scope.py;
 # no other changes to this file are needed for those replacements.
 # See docs/ecg-transition-priorities.md for the full replacement sequence.
-from src.ecg_analyses.ecg.ecg_analysis_engine import (       # REPLACEMENT BOUNDARY — see ver_analysis_engine.py
+from src.ecg_analyses.ecg.ecg_analysis_engine import (       # REPLACEMENT BOUNDARY — see ecg_analysis_engine.py
     detect_ecg_peaks,
     save_ecg_report,                    # ECG-named boundary (wraps inherited ver_report)
     refresh_classifier_cfg as _refresh_analysis_engine_cfg,
