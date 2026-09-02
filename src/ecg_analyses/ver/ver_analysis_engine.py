@@ -99,3 +99,13 @@ def refresh_classifier_cfg(cfg: dict) -> None:
     """
     _refresh_peaks_cfg(cfg)
     _refresh_classifier_cfg(cfg)
+
+# === ECG-first transitional wrappers (no behavior change) ===
+def detect_ecg_peaks(*args, **kwargs):
+    """ECG-first alias for detect_ver_peaks (transitional)."""
+    return detect_ver_peaks(*args, **kwargs)
+
+
+def refresh_ecg_analysis_config(*args, **kwargs):
+    """ECG-first alias for refresh_analysis_config (transitional)."""
+    return refresh_analysis_config(*args, **kwargs)
