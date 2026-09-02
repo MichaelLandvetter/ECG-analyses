@@ -1,6 +1,6 @@
 import unittest
 
-from ver_acquisition import SerialAcquisitionSource
+from ecg_acquisition import SerialAcquisitionSource
 
 
 class SerialAcquisitionParserTests(unittest.TestCase):

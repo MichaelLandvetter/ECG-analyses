@@ -3,11 +3,8 @@ import pytest
 
 MODULES = [
     "ecg_main", "ecg_pipeline", "ecg_loader", "ecg_report", "ecg_scope",
-    "ecg_config", "ecg_classifier", "ecg_extended_report",
-    "ver_main", "ver_acquisition", "ver_analysis_engine", "ver_analysis_flow",
-    "ver_classifier", "ver_config", "ver_constants", "ver_display",
-    "ver_filter", "ver_logging", "ver_ml_logger", "ver_peaks",
-    "ver_report", "ver_scope", "ver_settings", "ver_wavelet",
+    "ecg_config", "ecg_classifier", "ecg_extended_report", "ecg_acquisition",
+    "ecg_analysis_engine",
 ]
 
 OPTIONAL_DEP_KEYWORDS = (

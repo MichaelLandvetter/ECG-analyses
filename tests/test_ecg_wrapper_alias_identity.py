@@ -2,7 +2,7 @@ import pytest
 
 
 def test_legacy_aliases_point_to_ecg_first_functions():
-    mod = pytest.importorskip("ver_analysis_engine")
+    mod = pytest.importorskip("ecg_analysis_engine")
 
     assert hasattr(mod, "detect_ecg_peaks")
     assert hasattr(mod, "detect_ver_peaks")
